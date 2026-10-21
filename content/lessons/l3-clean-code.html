@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۳ · درس 2 | معماری تمیز: Action، Service و DTO</title><meta name="description" content="کنترلر لاغر با Form Request، Action، DTO، Interface و Service Container در لاراول؛ ثبت امن سفارش با تراکنش و قفل و تست آن.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۳ · درس 2</span><h1>معماری تمیز: Action، Service و DTO</h1><p>کدی که امروز سریع نوشته می‌شود، شش ماه بعد کند می‌شود. این درس ساختاری را نشانت می‌دهد که پروژه‌ی بزرگ را قابل‌تغییر و قابل‌تست نگه می‌دارد.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#fat">مشکل: کنترلر چاق</a></li><li><a href="#layers">هر چیز در جای خودش</a></li><li><a href="#request">Form Request</a></li><li><a href="#action">Action کلاس و DTO</a></li><li><a href="#interface">Interface و Service Container</a></li><li><a href="#rules">قوانین نوشتن کد تمیز</a></li><li><a href="#test">تست Action (بدون مرورگر)</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="fat"><div class="lesson-head"><span class="lesson-num">۱</span><h2>مشکل: کنترلر چاق</h2></div><p>در شروع، همه‌چیز را داخل کنترلر می‌نویسیم؛ بعد از چند ماه یک متد ۱۵۰ خطی داریم که نه می‌شود تستش کرد نه تغییرش داد. هدف این درس: هر کد در جای درست خودش بنشیند.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Order;
+use App\Models\Product;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+// ❌ کنترلر چاق: اعتبارسنجی، منطق کسب‌وکار، دیتابیس، ایمیل، همه با هم
+class CheckoutController extends Controller
+{
+    public function store(Request $request)
+    {
+        $request-&gt;validate(['address' =&gt; 'required|string|max:300']);
+
+        $cart = session('cart', []);
+        $total = 0;
+
+        DB::beginTransaction();
+        foreach ($cart as $id =&gt; $qty) {
+            $product = Product::find($id);
+            if ($product-&gt;stock &lt; $qty) {
+                DB::rollBack();
+                return back()-&gt;with('error', 'موجودی کافی نیست');
+            }
+            $product-&gt;decrement('stock', $qty);
+            $total += $product-&gt;price * $qty;
+        }
+        $order = Order::create(['user_id' =&gt; auth()-&gt;id(), 'total' =&gt; $total, 'address' =&gt; $request-&gt;address]);
+        DB::commit();
+
+        // ایمیل، پیامک، لاگ... همه همین‌جا
+        return redirect()-&gt;route('orders.show', $order);
+    }
+}</code></pre></div></div></section><section class="lesson" id="layers"><div class="lesson-head"><span class="lesson-num">۲</span><h2>هر چیز در جای خودش</h2></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>لایه</th><th>مسئولیت</th><th>نمونه</th></tr></thead><tbody><tr><td>Route</td><td>فقط آدرس ← کنترلر</td><td><code>Route::post('/checkout', ...)</code></td></tr><tr><td>Form Request</td><td>اعتبارسنجی و مجوز ورودی</td><td><code>CheckoutRequest</code></td></tr><tr><td>Controller</td><td>گرفتن ورودی، صدا زدن Action، برگرداندن پاسخ</td><td>۵ تا ۱۰ خط</td></tr><tr><td>Action / Service</td><td>منطق کسب‌وکار</td><td><code>PlaceOrderAction</code></td></tr><tr><td>Model</td><td>ارتباط‌ها، scope، cast</td><td><code>Order</code></td></tr><tr><td>Event / Listener</td><td>کارهای جانبی</td><td>ایمیل و پیامک</td></tr><tr><td>Resource / View</td><td>شکل خروجی</td><td><code>OrderResource</code></td></tr></tbody></table></div><div class="note info"><div class="note-title">Repository لازم است؟</div><p>در اغلب پروژه‌های لاراول، Eloquent خودش «Repository» است. لایه‌ی Repository اضافه فقط وقتی ارزش دارد که واقعاً چند منبع داده یا نیاز به جایگزینی داشته باشی؛ در غیر این‌صورت کد را پیچیده می‌کند.</p></div></section><section class="lesson" id="request"><div class="lesson-head"><span class="lesson-num">۳</span><h2>Form Request</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan make:request CheckoutRequest</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Http\Requests;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class CheckoutRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this-&gt;user() !== null;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'address' =&gt; ['required', 'string', 'max:300'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return ['address.required' =&gt; 'آدرس تحویل را وارد کن.'];
+    }
+}</code></pre></div></div></section><section class="lesson" id="action"><div class="lesson-head"><span class="lesson-num">۴</span><h2>Action کلاس و DTO</h2></div><p>منطق ثبت سفارش در یک کلاس مستقل می‌رود: قابل تست، قابل‌استفاده‌ی مجدد (از وب، API یا دستور Artisan) و کنترلر ساده می‌ماند. ورودی‌ها را در یک «DTO» ساده می‌ریزیم تا نوع‌ها مشخص باشد.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Data;
+
+final readonly class PlaceOrderData
+{
+    /** @param array&lt;int, int&gt; $items  [product_id =&gt; qty] */
+    public function __construct(
+        public int $userId,
+        public string $address,
+        public array $items,
+    ) {}
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Actions;
+
+use App\Data\PlaceOrderData;
+use App\Events\OrderPlaced;
+use App\Exceptions\OutOfStockException;
+use App\Models\Order;
+use App\Models\Product;
+use Illuminate\Support\Facades\DB;
+
+final class PlaceOrderAction
+{
+    public function execute(PlaceOrderData $data): Order
+    {
+        $order = DB::transaction(function () use ($data) {
+            $total = 0;
+
+            foreach ($data-&gt;items as $productId =&gt; $qty) {
+                // قفل ردیف: دو خریدار هم‌زمان موجودی را منفی نکنند
+                $product = Product::whereKey($productId)-&gt;lockForUpdate()-&gt;firstOrFail();
+
+                if ($product-&gt;stock &lt; $qty) {
+                    throw new OutOfStockException($product);
+                }
+
+                $product-&gt;decrement('stock', $qty);
+                $total += $product-&gt;price * $qty;
+            }
+
+            return Order::create([
+                'user_id' =&gt; $data-&gt;userId,
+                'address' =&gt; $data-&gt;address,
+                'total'   =&gt; $total,
+                'status'  =&gt; 'pending',
+            ]);
+        });
+
+        OrderPlaced::dispatch($order);   // ایمیل و ... در Listenerها (بعد از commit)
+
+        return $order;
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Exceptions;
+
+use App\Models\Product;
+use RuntimeException;
+
+class OutOfStockException extends RuntimeException
+{
+    public function __construct(public readonly Product $product)
+    {
+        parent::__construct("موجودی «{$product-&gt;title}» کافی نیست.");
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Http\Controllers;
+
+use App\Actions\PlaceOrderAction;
+use App\Data\PlaceOrderData;
+use App\Exceptions\OutOfStockException;
+use App\Http\Requests\CheckoutRequest;
+use Illuminate\Http\RedirectResponse;
+
+// ✅ کنترلر لاغر
+class CheckoutController extends Controller
+{
+    public function store(CheckoutRequest $request, PlaceOrderAction $placeOrder): RedirectResponse
+    {
+        try {
+            $order = $placeOrder-&gt;execute(new PlaceOrderData(
+                userId: $request-&gt;user()-&gt;id,
+                address: $request-&gt;validated('address'),
+                items: session('cart', []),
+            ));
+        } catch (OutOfStockException $e) {
+            return back()-&gt;with('error', $e-&gt;getMessage());
+        }
+
+        session()-&gt;forget('cart');
+
+        return redirect()-&gt;route('orders.show', $order);
+    }
+}</code></pre></div></div><div class="note tip"><div class="note-title">Dependency Injection</div><p><code>PlaceOrderAction $placeOrder</code> در امضای متد یعنی لاراول (Service Container) خودش شیء را می‌سازد و می‌دهد. در تست می‌توانی نمونه‌ی جعلی بدهی.</p></div></section><section class="lesson" id="interface"><div class="lesson-head"><span class="lesson-num">۵</span><h2>Interface و Service Container</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Contracts;
+
+interface ShippingCalculator
+{
+    public function cost(string $city, int $weightGrams): int;
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Services;
+
+use App\Contracts\ShippingCalculator;
+
+class FlatShippingCalculator implements ShippingCalculator
+{
+    public function cost(string $city, int $weightGrams): int
+    {
+        return $city === 'تهران' ? 50000 : 90000;
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Providers;
+
+use App\Contracts\ShippingCalculator;
+use App\Services\FlatShippingCalculator;
+use Illuminate\Support\ServiceProvider;
+
+class AppServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        // هرجا ShippingCalculator خواستند، این را بده؛ فردا می‌توانی عوضش کنی
+        $this-&gt;app-&gt;bind(ShippingCalculator::class, FlatShippingCalculator::class);
+    }
+}</code></pre></div></div></section><section class="lesson" id="rules"><div class="lesson-head"><span class="lesson-num">۶</span><h2>قوانین نوشتن کد تمیز</h2></div><ul><li><b>نام‌گذاری:</b> انگلیسی، دقیق و بدون اختصار: <code>$unpaidOrders</code> نه <code>$o</code>؛ تابع‌ها فعل: <code>calculateTotal()</code>.</li><li><b>تابع کوچک و تک‌کاره:</b> اگر برای توضیح تابع باید «و» بگویی، دو تابع است.</li><li><b>زود برگرد (Early Return):</b> شرط‌های بد را اول رد کن تا تو‌در‌تویی کم شود.</li><li><b>عدد و رشته‌ی جادویی نه:</b> از Enum و ثابت استفاده کن (<code>OrderStatus::Paid</code>).</li><li><b>تکرار نه (DRY)</b> ولی انتزاع زودهنگام هم نه؛ بار سوم که تکرار شد استخراج کن.</li><li><b>کامنت چرا را بگوید، نه چه را؛</b> کد باید خودش «چه» را بگوید.</li></ul><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+// ❌ تو در تو
+function discount($user, $total) {
+    if ($user) {
+        if ($user-&gt;isVip()) {
+            if ($total &gt; 1000000) {
+                return 0.2;
+            }
+        }
+    }
+    return 0;
+}
+
+// ✅ Early return
+function discountRate(?object $user, int $total): float
+{
+    if (! $user?-&gt;isVip()) {
+        return 0;
+    }
+
+    return $total &gt; 1_000_000 ? 0.2 : 0;
+}</code></pre></div></div><div class="note tip"><div class="note-title">ابزار</div><p>فرمت یکدست با <b>Laravel Pint</b> (<code>./vendor/bin/pint</code>) و تحلیل خطا با <b>Larastan</b> (PHPStan) را به پروژه اضافه کن؛ در درس CI/CD آن‌ها را خودکار می‌کنیم.</p></div></section><section class="lesson" id="test"><div class="lesson-head"><span class="lesson-num">۷</span><h2>تست Action (بدون مرورگر)</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Tests\Feature;
+
+use App\Actions\PlaceOrderAction;
+use App\Data\PlaceOrderData;
+use App\Exceptions\OutOfStockException;
+use App\Models\Product;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class PlaceOrderActionTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_it_creates_order_and_reduces_stock(): void
+    {
+        $user = User::factory()-&gt;create();
+        $product = Product::factory()-&gt;create(['price' =&gt; 100000, 'stock' =&gt; 5]);
+
+        $order = app(PlaceOrderAction::class)-&gt;execute(
+            new PlaceOrderData($user-&gt;id, 'تهران', [$product-&gt;id =&gt; 2])
+        );
+
+        $this-&gt;assertSame(200000, $order-&gt;total);
+        $this-&gt;assertSame(3, $product-&gt;fresh()-&gt;stock);
+    }
+
+    public function test_it_fails_when_out_of_stock(): void
+    {
+        $user = User::factory()-&gt;create();
+        $product = Product::factory()-&gt;create(['stock' =&gt; 1]);
+
+        $this-&gt;expectException(OutOfStockException::class);
+
+        app(PlaceOrderAction::class)-&gt;execute(
+            new PlaceOrderData($user-&gt;id, 'تهران', [$product-&gt;id =&gt; 3])
+        );
+    }
+}</code></pre></div></div></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۸</span><h2>اشتباه‌های رایج</h2></div><ol><li>همه‌چیز را در کنترلر و مدل ریختن (مدل چاق هم مشکل است).</li><li>انتزاع بیش‌ازحد: Interface و Repository برای هر کلاس حتی بدون نیاز.</li><li>منطق کسب‌وکار داخل Blade یا Migration.</li><li>ندادن تراکنش و قفل در عملیات موجودی/پول.</li><li>استثناهای بی‌نام (<code>Exception</code> عمومی) به‌جای استثنای دقیق.</li><li>refactor بدون تست؛ اول تست، بعد تغییر.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>یکی از کنترلرهای چاق پروژه‌ات (مثلاً ثبت سفارش) را به Form Request + Action + DTO تبدیل کن.</li><li>تست Action را بنویس و مطمئن شو رفتار قبلی حفظ شده.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li>Interface برای <code>ShippingCalculator</code> و دو پیاده‌سازی (ثابت و بر اساس وزن) بساز و در Service Provider یکی را bind کن.</li><li>در تست پیاده‌سازی جعلی بده.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>Pint را نصب و اجرا کن و تغییرات را بررسی کن؛ سپس Enum برای وضعیت سفارش بساز و رشته‌های جادویی را جایگزین کن.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://laravel.com/docs/13.x/validation#form-request-validation" target="_blank" rel="noopener">Form Request Validation</a> — <a href="https://laravel.com/docs/13.x/container" target="_blank" rel="noopener">Service Container</a> — <a href="https://laravel.com/docs/13.x/pint" target="_blank" rel="noopener">Laravel Pint</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="l3-policies-permissions.html">→ بخش قبل: نقش‌ها و دسترسی‌ها (Policy و Permission)</a><a href="l3-query-optimization.html">بعدی: بهینه‌سازی کوئری و رفع N+1 ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

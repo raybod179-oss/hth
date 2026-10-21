@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۳ · درس 4 | Livewire: رابط تعاملی بدون جاوااسکریپت</title><meta name="description" content="ساخت کامپوننت تعاملی با Livewire: جست‌وجوی زنده، سبد خرید، رویداد، اعتبارسنجی، امنیت ویژگی‌های public و تست با Livewire::test.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۳ · درس 4</span><h1>Livewire: رابط تعاملی بدون جاوااسکریپت</h1><p>صفحه‌ی زنده و تعاملی با همان PHP و Blade که می‌شناسی؛ بدون نوشتن API و فرانت‌اند جدا. با تمرکز ویژه روی نکات امنیتی که تازه‌کارها نادیده می‌گیرند.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#what">Livewire چیست؟</a></li><li><a href="#component">اولین کامپوننت: جست‌وجوی زنده</a></li><li><a href="#actions">اکشن، اعتبارسنجی و رویداد: سبد خرید</a></li><li><a href="#security">امنیت Livewire؛ مهم‌ترین بخش</a></li><li><a href="#test">تست کامپوننت</a></li><li><a href="#forms">فرم‌های تمیز: Form Object، اعتبارسنجی لحظه‌ای و آپلود فایل</a></li><li><a href="#perf">سرعت و تجربه‌ی روان: Computed، Lazy و Loading</a></li><li><a href="#events-ui">ارتباط کامپوننت‌ها: Event، مودال و اعلان</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="what"><div class="lesson-head"><span class="lesson-num">۱</span><h2>Livewire چیست؟</h2></div><p>Livewire اجازه می‌دهد صفحه‌های تعاملی (جست‌وجوی زنده، سبد خرید، فرم‌های پویا) را <b>فقط با PHP و Blade</b> بسازی، بدون اینکه خودت جاوااسکریپت و API بنویسی. کامپوننت در سرور اجرا می‌شود و تغییرات کوچک HTML به مرورگر می‌رسد.</p><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>انتخاب</th><th>کی مناسب است؟</th></tr></thead><tbody><tr><td><b>Blade ساده</b></td><td>صفحه‌های ثابت و فرم‌های عادی</td></tr><tr><td><b>Livewire</b></td><td>تعامل زیاد بدون ساخت فرانت جدا؛ پنل ادمین، جست‌وجو، سبد</td></tr><tr><td><b>API + React/Vue</b></td><td>اپ موبایل هم داری یا فرانت‌اند مستقل می‌خواهی</td></tr></tbody></table></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>composer require livewire/livewire
+php artisan make:livewire ProductSearch</code></pre></div></div><div class="note info"><div class="note-title">نسخه</div><p>این درس بر اساس Livewire 3 است. مفاهیم در نسخه‌های جدیدتر هم همین‌اند؛ اگر نام یک ویژگی فرق داشت، مستندات رسمی را ببین (لینک انتهای درس).</p></div></section><section class="lesson" id="component"><div class="lesson-head"><span class="lesson-num">۲</span><h2>اولین کامپوننت: جست‌وجوی زنده</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Livewire;
+
+use App\Models\Product;
+use Livewire\Attributes\Url;
+use Livewire\Component;
+use Livewire\WithPagination;
+
+class ProductSearch extends Component
+{
+    use WithPagination;
+
+    #[Url]                       // مقدار در آدرس هم می‌آید: /products?search=موس
+    public string $search = '';
+
+    public function updatingSearch(): void
+    {
+        $this-&gt;resetPage();      // با تغییر جست‌وجو برگرد صفحه‌ی ۱
+    }
+
+    public function render()
+    {
+        $products = Product::query()
+            -&gt;when($this-&gt;search, fn ($q, $term) =&gt; $q-&gt;where('title', 'like', "%{$term}%"))
+            -&gt;latest()
+            -&gt;paginate(12);
+
+        return view('livewire.product-search', ['products' =&gt; $products]);
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">html</span></div><pre><code>&lt;div&gt;
+    &lt;input type="search" wire:model.live.debounce.300ms="search" placeholder="جست‌وجوی محصول..."&gt;
+
+    &lt;div wire:loading&gt;در حال جست‌وجو...&lt;/div&gt;
+
+    &lt;ul&gt;
+        @foreach ($products as $product)
+            &lt;li wire:key="product-{{ $product-&gt;id }}"&gt;{{ $product-&gt;title }}&lt;/li&gt;
+        @endforeach
+    &lt;/ul&gt;
+
+    {{ $products-&gt;links() }}
+&lt;/div&gt;</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+// routes/web.php  — کامپوننت تمام‌صفحه
+use App\Livewire\ProductSearch;
+use Illuminate\Support\Facades\Route;
+
+Route::get('/products', ProductSearch::class);</code></pre></div></div><ul><li><code>wire:model.live</code> تغییر را همان لحظه به سرور می‌فرستد؛ <code>.debounce.300ms</code> تا ۰٫۳ ثانیه بعد از آخرین کلید صبر می‌کند (جلوگیری از درخواست زیاد). بدون <code>.live</code> مقدار فقط با اولین اکشن (مثل ارسال فرم) می‌رود.</li><li><code>wire:key</code> داخل حلقه لازم است تا Livewire هر ردیف را درست دنبال کند.</li><li>کامپوننت باید <b>یک</b> المنت ریشه داشته باشد.</li></ul></section><section class="lesson" id="actions"><div class="lesson-head"><span class="lesson-num">۳</span><h2>اکشن، اعتبارسنجی و رویداد: سبد خرید</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Livewire;
+
+use App\Models\Product;
+use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
+use Livewire\Attributes\Validate;
+use Livewire\Component;
+
+class AddToCart extends Component
+{
+    #[Locked]                              // کلاینت نمی‌تواند مقدارش را دستکاری کند
+    public int $productId;
+
+    #[Validate('required|integer|min:1|max:10')]
+    public int $qty = 1;
+
+    public function mount(Product $product): void
+    {
+        $this-&gt;productId = $product-&gt;id;
+    }
+
+    public function add(): void
+    {
+        $this-&gt;validate();
+
+        $product = Product::findOrFail($this-&gt;productId);   // همیشه از دیتابیس بخوان
+        abort_if($product-&gt;stock &lt; $this-&gt;qty, 422, 'موجودی کافی نیست');
+
+        $cart = session('cart', []);
+        $cart[$product-&gt;id] = ($cart[$product-&gt;id] ?? 0) + $this-&gt;qty;
+        session(['cart' =&gt; $cart]);
+
+        $this-&gt;dispatch('cart-updated');                    // به کامپوننت‌های دیگر خبر بده
+    }
+
+    public function render()
+    {
+        return view('livewire.add-to-cart');
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">html</span></div><pre><code>&lt;div&gt;
+    &lt;input type="number" wire:model="qty" min="1" max="10"&gt;
+    @error('qty') &lt;small&gt;{{ $message }}&lt;/small&gt; @enderror
+
+    &lt;button wire:click="add" wire:loading.attr="disabled"&gt;افزودن به سبد&lt;/button&gt;
+&lt;/div&gt;</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Livewire;
+
+use Livewire\Attributes\On;
+use Livewire\Component;
+
+class CartBadge extends Component
+{
+    public int $count = 0;
+
+    public function mount(): void
+    {
+        $this-&gt;refreshCount();
+    }
+
+    #[On('cart-updated')]                  // وقتی AddToCart رویداد را فرستاد
+    public function refreshCount(): void
+    {
+        $this-&gt;count = array_sum(session('cart', []));
+    }
+
+    public function render()
+    {
+        return view('livewire.cart-badge');
+    }
+}</code></pre></div></div></section><section class="lesson" id="security"><div class="lesson-head"><span class="lesson-num">۴</span><h2>امنیت Livewire؛ مهم‌ترین بخش</h2></div><div class="note warn"><div class="note-title">هر چیزی که public است دست کاربر است</div><p>ویژگی‌های <code>public</code> کامپوننت را مرورگر می‌تواند دستکاری کند و متدهای <code>public</code> را مستقیم صدا بزند. پس مثل یک API رفتار کن:</p></div><ul><li>شناسه‌های حساس را با <code>#[Locked]</code> قفل کن یا اصلاً public نکن.</li><li>داخل هر اکشن دوباره <b>authorize</b> کن (<code>Gate::authorize('update', $order)</code>)؛ فرض نکن چون دکمه مخفی بود، کسی صدایش نمی‌زند.</li><li>مقدارها را همیشه validate کن و قیمت/موجودی را از دیتابیس بخوان نه از ویژگی کامپوننت.</li><li>ویژگی‌های حجیم (مثل کل کالکشن‌ها) را public نگه نداری؛ حجم درخواست و نشت داده را بالا می‌برد.</li></ul><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Livewire;
+
+use App\Models\Order;
+use Illuminate\Support\Facades\Gate;
+use Livewire\Attributes\Locked;
+use Livewire\Component;
+
+class OrderNote extends Component
+{
+    #[Locked]
+    public int $orderId;
+
+    public string $note = '';
+
+    public function save(): void
+    {
+        $order = Order::findOrFail($this-&gt;orderId);
+        Gate::authorize('update', $order);            // ✅ حتی داخل Livewire
+
+        $this-&gt;validate(['note' =&gt; 'nullable|string|max:500']);
+        $order-&gt;update(['note' =&gt; $this-&gt;note]);
+    }
+
+    public function render()
+    {
+        return view('livewire.order-note');
+    }
+}</code></pre></div></div></section><section class="lesson" id="test"><div class="lesson-head"><span class="lesson-num">۵</span><h2>تست کامپوننت</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Tests\Feature;
+
+use App\Livewire\ProductSearch;
+use App\Models\Product;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
+use Tests\TestCase;
+
+class ProductSearchTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_it_filters_products(): void
+    {
+        Product::factory()-&gt;create(['title' =&gt; 'کیبورد مکانیکی']);
+        Product::factory()-&gt;create(['title' =&gt; 'ماوس بی‌سیم']);
+
+        Livewire::test(ProductSearch::class)
+            -&gt;set('search', 'ماوس')
+            -&gt;assertSee('ماوس بی‌سیم')
+            -&gt;assertDontSee('کیبورد مکانیکی');
+    }
+}</code></pre></div></div></section><section class="lesson" id="forms" data-deep="1"><div class="lesson-head"><span class="lesson-num">۶</span><h2>فرم‌های تمیز: Form Object، اعتبارسنجی لحظه‌ای و آپلود فایل</h2></div><p>وقتی فرم بزرگ شد، همه‌ی ویژگی‌ها و قوانین را در خود کامپوننت نگذار؛ یک «Form Object» بساز. (این درس بر پایه‌ی Livewire 3 است.)</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan livewire:form ProductForm</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// app/Livewire/Forms/ProductForm.php
+namespace App\Livewire\Forms;
+
+use App\Models\Product;
+use Livewire\Attributes\Validate;
+use Livewire\Form;
+
+class ProductForm extends Form
+{
+    #[Validate('required|string|min:3|max:120')]
+    public string $name = '';
+
+    #[Validate('required|integer|min:1000')]
+    public string|int $price = '';
+
+    #[Validate('nullable|image|max:2048')]   // حداکثر ۲ مگابایت
+    public $image;
+
+    public function store(): Product
+    {
+        $this-&gt;validate();
+
+        return Product::create([
+            'name'  =&gt; $this-&gt;name,
+            'price' =&gt; (int) $this-&gt;price,
+            'image' =&gt; $this-&gt;image?-&gt;store('products', 'public'),
+        ]);
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// app/Livewire/ProductCreate.php
+use App\Livewire\Forms\ProductForm;
+use Livewire\Component;
+use Livewire\WithFileUploads;
+
+class ProductCreate extends Component
+{
+    use WithFileUploads;
+
+    public ProductForm $form;
+
+    public function save(): void
+    {
+        $product = $this-&gt;form-&gt;store();
+        $this-&gt;form-&gt;reset();
+        $this-&gt;dispatch('product-saved', id: $product-&gt;id);
+        session()-&gt;flash('ok', 'محصول ذخیره شد');
+    }
+
+    public function render() { return view('livewire.product-create'); }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">blade</span></div><pre><code>&lt;form wire:submit="save"&gt;
+    &lt;input type="text" wire:model.blur="form.name" placeholder="نام محصول"&gt;
+    @error('form.name') &lt;span class="err"&gt;{{ $message }}&lt;/span&gt; @enderror
+
+    &lt;input type="number" wire:model="form.price" placeholder="قیمت (تومان)"&gt;
+    @error('form.price') &lt;span class="err"&gt;{{ $message }}&lt;/span&gt; @enderror
+
+    &lt;input type="file" wire:model="form.image" accept="image/*"&gt;
+    &lt;div wire:loading wire:target="form.image"&gt;در حال آپلود…&lt;/div&gt;
+    @if ($form-&gt;image) &lt;img src="{{ $form-&gt;image-&gt;temporaryUrl() }}" width="120"&gt; @endif
+
+    &lt;button type="submit" wire:loading.attr="disabled"&gt;
+        &lt;span wire:loading.remove wire:target="save"&gt;ذخیره&lt;/span&gt;
+        &lt;span wire:loading wire:target="save"&gt;در حال ذخیره…&lt;/span&gt;
+    &lt;/button&gt;
+&lt;/form&gt;</code></pre></div></div><ul><li><code>wire:model.blur</code>: وقتی کاربر از فیلد خارج شد بررسی کن؛ <code>wire:model.live</code> با هر کلید درخواست می‌فرستد (برای جست‌وجو با <code>.debounce.300ms</code> ترکیب کن).</li><li>فایل در مرحله‌ی اول به‌صورت موقت آپلود می‌شود؛ تا <code>store()</code> را صدا نزنی ذخیره‌ی دائمی نمی‌شود. <code>image</code> را حتماً اعتبارسنجی کن.</li><li>برای نمایش فایل‌های ذخیره‌شده از <code>php artisan storage:link</code> استفاده کن.</li></ul></section><section class="lesson" id="perf" data-deep="1"><div class="lesson-head"><span class="lesson-num">۷</span><h2>سرعت و تجربه‌ی روان: Computed، Lazy و Loading</h2></div><p>Livewire با هر تعامل یک درخواست می‌فرستد؛ پس باید هوشمندانه‌اش کرد.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>use Livewire\Attributes\Computed;
+use Livewire\Attributes\Lazy;
+use Livewire\Attributes\Url;
+use Livewire\WithPagination;
+
+#[Lazy]                                   // اول صفحه را نشان بده، کامپوننت سنگین را بعداً بارگذاری کن
+class ProductList extends Component
+{
+    use WithPagination;
+
+    #[Url(as: 'q', history: true)]        // جست‌وجو در آدرس می‌ماند (قابل‌اشتراک)
+    public string $search = '';
+
+    public function updatedSearch(): void { $this-&gt;resetPage(); }   // با عوض‌شدن جست‌وجو، به صفحه‌ی ۱ برگرد
+
+    #[Computed]
+    public function products()
+    {
+        return Product::query()
+            -&gt;when($this-&gt;search, fn ($q) =&gt; $q-&gt;where('name', 'like', "%{$this-&gt;search}%"))
+            -&gt;latest()-&gt;paginate(12);
+    }
+
+    public function placeholder() { return view('livewire.skeleton'); }   // اسکلت بارگذاری
+
+    public function render() { return view('livewire.product-list'); }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">blade</span></div><pre><code>&lt;input type="search" wire:model.live.debounce.400ms="search" placeholder="جست‌وجو…"&gt;
+
+&lt;div wire:loading.class="opacity-50" wire:target="search"&gt;
+    @foreach ($this-&gt;products as $product)
+        &lt;x-product-card :product="$product" wire:key="p-{{ $product-&gt;id }}" /&gt;
+    @endforeach
+&lt;/div&gt;
+
+{{ $this-&gt;products-&gt;links() }}</code></pre></div></div><ul><li><code>#[Computed]</code>: نتیجه در همان درخواست کش می‌شود و چند بار صدا زدن در Blade کوئری اضافه نمی‌زند.</li><li><code>wire:key</code> را در حلقه‌ها همیشه بگذار؛ بدون آن، Livewire عناصر را اشتباه با هم یکی می‌کند.</li><li><code>wire:navigate</code> روی لینک‌ها، ناوبری را بدون بارگذاری کامل صفحه (SPA مانند) می‌کند.</li><li><code>wire:poll.30s</code> برای داده‌ی زنده‌ی ساده (تعداد سفارش‌های جدید) خوب است؛ برای زنده‌ی واقعی از Broadcasting استفاده کن.</li><li>هر چیزی که روی ویژگی‌های <code>public</code> می‌گذاری برای کاربر قابل‌مشاهده و قابل‌تغییر است؛ داده‌ی حساس را public نگذار و شناسه‌ها را در Action دوباره با Policy بررسی کن.</li></ul><div class="note warn"><div class="note-title">امنیت</div><p>هر متد <code>public</code> کامپوننت مثل یک مسیر HTTP است و کاربر می‌تواند آن را صدا بزند. داخل هر Action مجوز را با <code>$this->authorize()</code> بررسی کن، نه فقط دکمه را در UI مخفی کن.</p></div></section><section class="lesson" id="events-ui" data-deep="1"><div class="lesson-head"><span class="lesson-num">۸</span><h2>ارتباط کامپوننت‌ها: Event، مودال و اعلان</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// کامپوننت اول: پس از ذخیره
+$this-&gt;dispatch('product-saved', id: $product-&gt;id);
+
+// کامپوننت دوم: گوش‌دادن
+use Livewire\Attributes\On;
+
+#[On('product-saved')]
+public function refresh(int $id): void
+{
+    unset($this-&gt;products);          // کش Computed را باطل کن
+    $this-&gt;dispatch('toast', message: 'محصول اضافه شد');
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">blade</span></div><pre><code>{{-- Alpine برای تعامل کوچک سمت مرورگر؛ Livewire فقط وقتی سرور لازم است --}}
+&lt;div x-data="{ open: false }" @toast.window="open = true; setTimeout(() =&gt; open = false, 2500)"&gt;
+    &lt;div x-show="open" x-transition class="toast" x-text="$event?.detail?.message"&gt;&lt;/div&gt;
+&lt;/div&gt;</code></pre></div></div><p>قاعده‌ی کلی: اگر تعامل فقط ظاهری است (باز و بسته‌شدن منو، تب)، با <b>Alpine</b> انجام بده و درخواست سرور نفرست. اگر داده یا منطق سرور لازم است، <b>Livewire</b>.</p></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۹</span><h2>اشتباه‌های رایج</h2></div><ol><li>فراموش‌کردن <code>.live</code> و تعجب از اینکه تایپ هم‌زمان کار نمی‌کند.</li><li>نداشتن <code>wire:key</code> در حلقه و پرش یا گیج‌شدن ردیف‌ها.</li><li>کامپوننت با چند المنت ریشه.</li><li>اعتماد به مقدار public بدون authorize/validate (حفره‌ی امنیتی).</li><li>ریختن کوئری سنگین در <code>render()</code> بدون eager loading؛ هر تغییر کوچک دوباره اجرا می‌شود.</li><li>استفاده از Livewire برای چیزی که با یک فرم Blade ساده حل می‌شد.</li><li>بدون <code>wire:key</code> در حلقه‌ها؛ فیلدها هنگام به‌روزرسانی جابه‌جا می‌شوند.</li><li>گذاشتن مدل کامل Eloquent یا داده‌ی حساس در ویژگی‌های <code>public</code>.</li><li><code>wire:model.live</code> روی فیلدهای متنی بدون debounce؛ با هر حرف یک درخواست.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>جست‌وجوی زنده‌ی محصول را بساز و فیلتر دسته و بازه‌ی قیمت را به آن اضافه کن (با <code>#[Url]</code>).</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li>دکمه‌ی «افزودن به سبد» و نشان تعداد سبد را بساز که با رویداد به‌روز شود.</li><li>یک تست Livewire بنویس که تعداد منفی را رد می‌کند.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>جدول سفارش‌های پنل ادمین را با مرتب‌سازی، جست‌وجو و صفحه‌بندی با Livewire بساز و دسترسی هر اکشن را با Policy کنترل کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۴</div><ol><li>فرم «افزودن محصول» را با Form Object، اعتبارسنجی لحظه‌ای و آپلود تصویر با پیش‌نمایش بساز.</li><li>یک لیست محصولات با جست‌وجوی <code>debounce</code>، صفحه‌بندی و <code>#[Url]</code> بساز؛ آدرس را کپی کن و در تب دیگر باز کن تا مطمئن شوی جست‌وجو حفظ می‌شود.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۵</div><ol><li>دو کامپوننت بساز که با <code>dispatch</code> و <code>#[On]</code> با هم حرف بزنند (فرم و لیست). یک تست با <code>Livewire::test()</code> برای رفتار ذخیره‌ی فرم بنویس.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://livewire.laravel.com/docs" target="_blank" rel="noopener">Livewire Docs</a> — <a href="https://laravel.com/docs/13.x/starter-kits" target="_blank" rel="noopener">Laravel Starter Kits</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="l3-query-optimization.html">→ بخش قبل: بهینه‌سازی کوئری و رفع N+1</a><a href="l3-broadcasting.html">بعدی: بلادرنگ (Broadcasting) ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

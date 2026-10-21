@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۲ · درس 9 | فارسی‌سازی: RTL و تاریخ شمسی</title><meta name="description" content="راست‌به‌چپ کردن سایت لاراول، فونت فارسی محلی، زبان فارسی، تاریخ شمسی با morilog/jalali، نرمال‌سازی ارقام و حروف و اسلاگ فارسی.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۲ · درس 9</span><h1>فارسی‌سازی: RTL و تاریخ شمسی</h1><p>سایت فارسی فقط ترجمه‌ی متن نیست: جهت صفحه، فونت، تاریخ، ارقام و ورودی‌های کاربر باید درست باشند. این درس همه‌ی جزئیات را یک‌جا جمع می‌کند.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#rtl">راست‌به‌چپ کردن سایت</a></li><li><a href="#font">فونت فارسی؛ بدون وابستگی به سرویس خارجی</a></li><li><a href="#lang">زبان فارسی در لاراول</a></li><li><a href="#jalali">تاریخ شمسی</a></li><li><a href="#digits">ارقام و نرمال‌سازی ورودی فارسی</a></li><li><a href="#slug">اسلاگ و جست‌وجوی فارسی</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="rtl"><div class="lesson-head"><span class="lesson-num">۱</span><h2>راست‌به‌چپ کردن سایت</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">html</span></div><pre><code>&lt;!DOCTYPE html&gt;
+&lt;html lang="{{ str_replace('_', '-', app()-&gt;getLocale()) }}"
+      dir="{{ app()-&gt;getLocale() === 'fa' ? 'rtl' : 'ltr' }}"&gt;
+&lt;head&gt;
+    &lt;meta charset="UTF-8"&gt;
+    &lt;meta name="viewport" content="width=device-width, initial-scale=1"&gt;
+    &lt;link rel="stylesheet" href="{{ asset('css/app.css') }}"&gt;
+&lt;/head&gt;</code></pre></div></div><ul><li><b>Tailwind:</b> به‌جای <code>ml-4 / pr-2</code> از ویژگی‌های منطقی استفاده کن: <code>ms-4</code> (شروع)، <code>me-4</code> (پایان)، <code>ps-2</code>، <code>pe-2</code>، <code>text-start</code> تا هم در RTL هم LTR درست باشد. برای حالت‌های خاص <code>rtl:</code> و <code>ltr:</code>.</li><li><b>Bootstrap 5:</b> نسخه‌ی RTL آن (<code>bootstrap.rtl.min.css</code>) را به‌جای نسخه‌ی عادی لود کن.</li><li><b>آیکون‌های جهت‌دار:</b> فلش‌ها و «بعدی/قبلی» را در RTL برعکس کن.</li></ul></section><section class="lesson" id="font"><div class="lesson-head"><span class="lesson-num">۲</span><h2>فونت فارسی؛ بدون وابستگی به سرویس خارجی</h2></div><p>Google Fonts در ایران گاهی کند یا قطع است و سایت را کند می‌کند. فونت را خودت روی سرور میزبانی کن (مثلاً Vazirmatn که رایگان و متن‌باز است).</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">css</span></div><pre><code>@font-face {
+    font-family: 'Vazirmatn';
+    src: url('/fonts/Vazirmatn-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-display: swap;      /* متن تا لود فونت نامرئی نماند */
+}
+@font-face {
+    font-family: 'Vazirmatn';
+    src: url('/fonts/Vazirmatn-Bold.woff2') format('woff2');
+    font-weight: 700;
+    font-display: swap;
+}
+body { font-family: 'Vazirmatn', Tahoma, system-ui, sans-serif; }</code></pre></div></div><div class="note tip"><div class="note-title">عدد و متن مختلط</div><p>ایمیل، آدرس سایت و شماره تلفن در متن فارسی گاهی به‌هم می‌ریزند. آن‌ها را داخل <code>&lt;bdi dir="ltr"&gt;...&lt;/bdi&gt;</code> یا یک المنت با <code>dir="ltr"</code> بگذار.</p></div></section><section class="lesson" id="lang"><div class="lesson-head"><span class="lesson-num">۳</span><h2>زبان فارسی در لاراول</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">text</span></div><pre><code># .env
+APP_LOCALE=fa
+APP_FALLBACK_LOCALE=en
+APP_FAKER_LOCALE=fa_IR</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan lang:publish          # ساخت پوشه‌ی lang
+
+# پیام‌های آماده‌ی فارسی (اعتبارسنجی، رمز، ...) از پکیج جامعه:
+composer require laravel-lang/common --dev
+php artisan lang:add fa</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+// نام فارسی فیلدها در پیام‌های خطا: lang/fa/validation.php
+return [
+    // ... پیام‌ها ...
+    'attributes' =&gt; [
+        'name'     =&gt; 'نام',
+        'email'    =&gt; 'ایمیل',
+        'phone'    =&gt; 'شماره‌ی موبایل',
+        'password' =&gt; 'رمز عبور',
+    ],
+];</code></pre></div></div><p>برای متن‌های رابط کاربری از <code>__('...')</code> و فایل <code>lang/fa.json</code> استفاده کن تا بعداً اضافه‌کردن زبان دوم راحت باشد. جزئیات نصب و دستورات پکیج را از README همان پکیج دنبال کن.</p></section><section class="lesson" id="jalali"><div class="lesson-head"><span class="lesson-num">۴</span><h2>تاریخ شمسی</h2></div><p>دیتابیس همیشه تاریخ میلادی ذخیره می‌کند (و باید همین‌طور باشد)؛ فقط هنگام «نمایش» به شمسی تبدیل می‌کنیم و هنگام «دریافت از کاربر» برعکس.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>composer require morilog/jalali</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Database\Eloquent\Model;
+use Morilog\Jalali\Jalalian;
+
+class Order extends Model
+{
+    // $order-&gt;created_at_jalali  ←  «۱۴۰۵/۰۲/۱۵»
+    protected function createdAtJalali(): Attribute
+    {
+        return Attribute::make(
+            get: fn () =&gt; Jalalian::fromCarbon($this-&gt;created_at)-&gt;format('Y/m/d H:i'),
+        );
+    }
+}
+
+// تبدیل ورودی کاربر (شمسی) به Carbon برای ذخیره:
+// $date = Jalalian::fromFormat('Y/m/d', '1405/02/15')-&gt;toCarbon();</code></pre></div></div><div class="note info"><div class="note-title">منطقه‌ی زمانی</div><p>اگر سایتت فقط برای ایران است، <code>'timezone' => 'Asia/Tehran'</code> را در <code>config/app.php</code> بگذار تا <code>now()</code> و زمان‌بندها به وقت تهران باشند. در سایت‌های چندکشوری بهتر است UTC نگه داری و هنگام نمایش تبدیل کنی.</p></div></section><section class="lesson" id="digits"><div class="lesson-head"><span class="lesson-num">۵</span><h2>ارقام و نرمال‌سازی ورودی فارسی</h2></div><p>کاربران ایرانی گاهی عدد را با ارقام فارسی (۰۹۱۲...) یا عربی می‌نویسند و گاهی «ی» و «ک» عربی (ي، ك) تایپ می‌شود. اگر نرمال نکنی، جست‌وجو و ورود با شماره‌ی موبایل خراب می‌شود. یک helper بنویس و در <code>prepareForValidation</code> استفاده کن.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+// app/helpers.php  (در composer.json بخش autoload.files اضافه شود)
+
+if (! function_exists('en_digits')) {
+    function en_digits(string $value): string
+    {
+        return strtr($value, [
+            '۰' =&gt; '0', '۱' =&gt; '1', '۲' =&gt; '2', '۳' =&gt; '3', '۴' =&gt; '4',
+            '۵' =&gt; '5', '۶' =&gt; '6', '۷' =&gt; '7', '۸' =&gt; '8', '۹' =&gt; '9',
+            '٠' =&gt; '0', '١' =&gt; '1', '٢' =&gt; '2', '٣' =&gt; '3', '٤' =&gt; '4',
+            '٥' =&gt; '5', '٦' =&gt; '6', '٧' =&gt; '7', '٨' =&gt; '8', '٩' =&gt; '9',
+        ]);
+    }
+}
+
+if (! function_exists('fa_digits')) {
+    function fa_digits(string|int $value): string
+    {
+        return strtr((string) $value, [
+            '0' =&gt; '۰', '1' =&gt; '۱', '2' =&gt; '۲', '3' =&gt; '۳', '4' =&gt; '۴',
+            '5' =&gt; '۵', '6' =&gt; '۶', '7' =&gt; '۷', '8' =&gt; '۸', '9' =&gt; '۹',
+        ]);
+    }
+}
+
+if (! function_exists('fa_normalize')) {
+    function fa_normalize(string $value): string
+    {
+        return trim(str_replace(['ي', 'ك'], ['ی', 'ک'], $value));
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">json</span></div><pre><code>{
+    "autoload": {
+        "psr-4": { "App\\": "app/" },
+        "files": ["app/helpers.php"]
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Http\Requests;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class RegisterRequest extends FormRequest
+{
+    protected function prepareForValidation(): void
+    {
+        $this-&gt;merge([
+            'phone' =&gt; en_digits((string) $this-&gt;input('phone')),
+            'name'  =&gt; fa_normalize((string) $this-&gt;input('name')),
+        ]);
+    }
+
+    public function rules(): array
+    {
+        return [
+            'name'  =&gt; ['required', 'string', 'max:100'],
+            'phone' =&gt; ['required', 'regex:/^09\d{9}$/', 'unique:users,phone'],
+        ];
+    }
+}</code></pre></div></div><p>بعد از تغییر <code>composer.json</code> یک‌بار <code>composer dump-autoload</code> بزن.</p></section><section class="lesson" id="slug"><div class="lesson-head"><span class="lesson-num">۶</span><h2>اسلاگ و جست‌وجوی فارسی</h2></div><p>آدرس‌هایی مثل <code>/posts/آموزش-لاراول</code> هم قانونی‌اند و برای سئوی فارسی خوب‌اند. تابع زیر حروف و ارقام (فارسی و لاتین) را نگه می‌دارد و بقیه را به خط تیره تبدیل می‌کند و نیم‌فاصله را هم درست مدیریت می‌کند.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+function fa_slug(string $title): string
+{
+    $title = str_replace(["\u{200c}", 'ي', 'ك'], [' ', 'ی', 'ک'], $title);   // نیم‌فاصله ← فاصله
+    $title = mb_strtolower($title);
+    $title = preg_replace('/[^\p{L}\p{N}]+/u', '-', $title);
+
+    return trim($title, '-');
+}
+
+echo fa_slug('آموزش Laravel برای مبتدی‌ها!');   // آموزش-laravel-برای-مبتدی-ها</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>آموزش-laravel-برای-مبتدی-ها</code></pre></div></div><div class="note tip"><div class="note-title">ستون یکتا</div><p>اسلاگ را در جدول با <code>unique</code> تعریف کن و اگر تکراری بود پسوند <code>-2</code> اضافه کن.</p></div></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۷</span><h2>اشتباه‌های رایج</h2></div><ol><li>فراموش‌کردن <code>dir="rtl"</code> روی <code>html</code> و رفتن همه‌چیز به‌هم.</li><li>استفاده از <code>ml-</code>/<code>pr-</code> به‌جای <code>ms-</code>/<code>pe-</code> و خراب‌شدن حالت LTR.</li><li>ذخیره‌ی تاریخ شمسی در دیتابیس به‌جای میلادی.</li><li>نرمال‌نکردن ارقام در ورودی (شماره‌ی موبایل ورود نمی‌خورد).</li><li>اتکا به Google Fonts.</li><li>استفاده از <code>strlen</code> و <code>substr</code> روی فارسی؛ از <code>mb_</code> استفاده کن.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>قالب اصلی (layout) سایت را RTL کن و فونت Vazirmatn را محلی لود کن.</li><li>ببین کدام قسمت‌های چیدمان به‌خاطر <code>margin-left/right</code> اشتباه شده‌اند و درستشان کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li>Accessor شمسی برای <code>created_at</code> در مدل Order بنویس و در لیست سفارش‌ها نمایش بده.</li><li>فرم «فیلتر بر اساس تاریخ» بساز که تاریخ شمسی بگیرد و در کوئری به میلادی تبدیل کند.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>در فرم ثبت‌نام، شماره‌ی موبایل با ارقام فارسی بزن و ثبت‌نام را با <code>prepareForValidation</code> موفق کن.</li><li>تست بنویس که <code>fa_slug</code> نیم‌فاصله و علامت‌ها را درست مدیریت می‌کند.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://laravel.com/docs/13.x/localization" target="_blank" rel="noopener">Localization</a> — <a href="https://github.com/morilog/jalali" target="_blank" rel="noopener">morilog/jalali</a> — <a href="https://github.com/rastikerdar/vazirmatn" target="_blank" rel="noopener">Vazirmatn font</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="l2-scheduler.html">→ بخش قبل: Scheduler و کارهای زمان‌بندی‌شده</a><a href="l2-payment-gateway.html">بعدی: اتصال درگاه پرداخت ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۲ · درس 2 | تست‌نویسی (Feature و Unit)</title><meta name="description" content="Feature و Unit Test در لاراول، RefreshDatabase، Factory، actingAs، assertDatabaseHas، fake کردن Mail/Queue و ریتم قرمز-سبز-بازنویسی.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۲ · درس 2</span><h1>تست‌نویسی (Feature و Unit)</h1><p>کدی که تست ندارد، فقط «امیدوارم کار کند» است. این درس با مثال‌های واقعی فروشگاه نشانت می‌دهد چطور در چند ثانیه مطمئن شوی چیزی خراب نشده.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#why">چرا تست بنویسیم؟</a></li><li><a href="#setup">اجرای اولین تست</a></li><li><a href="#feature">Feature Test: درخواست واقعی</a></li><li><a href="#assert">Assertionهای پرکاربرد</a></li><li><a href="#unit">Unit Test و Factory</a></li><li><a href="#fake">Fake: ایمیل، صف و رویداد را بدون اجرای واقعی تست کن</a></li><li><a href="#tdd">ریتم کار: قرمز، سبز، بازنویسی</a></li><li><a href="#advanced-tests">تست‌های واقعی‌تر: API بیرونی، زمان و Mock</a></li><li><a href="#data-provider">داده‌محور، Factory State و سرعت</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="why"><div class="lesson-head"><span class="lesson-num">۱</span><h2>چرا تست بنویسیم؟</h2></div><p>تست یعنی کدی که کد دیگر را خودکار چک می‌کند. وقتی پروژه بزرگ شود، هر تغییر ممکن است چیزی را خراب کند؛ تست‌ها در چند ثانیه می‌گویند «همه‌چیز هنوز کار می‌کند؟». پروژه‌های جدی (و مصاحبه‌های کاری) تست را می‌خواهند.</p><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>نوع</th><th>چه چیزی را می‌سنجد؟</th><th>سرعت</th></tr></thead><tbody><tr><td>Unit</td><td>یک کلاس یا تابع تنها (مثل محاسبه‌ی جمع سبد)</td><td>خیلی سریع</td></tr><tr><td>Feature</td><td>یک درخواست کامل: روت ← کنترلر ← دیتابیس ← پاسخ</td><td>سریع</td></tr><tr><td>Browser (Dusk)</td><td>مرورگر واقعی</td><td>کند؛ در این دوره نیست</td></tr></tbody></table></div></section><section class="lesson" id="setup"><div class="lesson-head"><span class="lesson-num">۲</span><h2>اجرای اولین تست</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan test                       # اجرای همه‌ی تست‌ها
+php artisan test --filter=ProductTest  # فقط یک کلاس/متد
+php artisan test --parallel            # موازی (سریع‌تر)
+
+php artisan make:test ProductTest          # Feature test
+php artisan make:test CartTest --unit      # Unit test</code></pre></div></div><div class="note info"><div class="note-title">دیتابیس تست</div><p>فایل <code>phpunit.xml</code> را باز کن؛ معمولاً تست‌ها روی SQLite در حافظه (<code>:memory:</code>) اجرا می‌شوند تا دیتابیس اصلی‌ات دست‌نخورده بماند و تست‌ها سریع باشند. هرگز تست را روی دیتابیس واقعی اجرا نکن.</p></div></section><section class="lesson" id="feature"><div class="lesson-head"><span class="lesson-num">۳</span><h2>Feature Test: درخواست واقعی</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Tests\Feature;
+
+use App\Models\Product;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class ProductTest extends TestCase
+{
+    use RefreshDatabase;   // قبل از هر تست دیتابیس تمیز می‌شود
+
+    public function test_products_page_lists_products(): void
+    {
+        Product::factory()-&gt;count(3)-&gt;create();
+
+        $response = $this-&gt;get('/products');
+
+        $response-&gt;assertStatus(200);
+        $response-&gt;assertViewHas('products');
+    }
+
+    public function test_guest_cannot_create_product(): void
+    {
+        $this-&gt;post('/admin/products', ['title' =&gt; 'x'])
+             -&gt;assertRedirect('/login');
+    }
+
+    public function test_admin_can_create_product(): void
+    {
+        $admin = User::factory()-&gt;create(['role' =&gt; 'admin']);
+
+        $this-&gt;actingAs($admin)
+             -&gt;post('/admin/products', [
+                 'title' =&gt; 'کیبورد',
+                 'price' =&gt; 850000,
+                 'stock' =&gt; 5,
+             ])
+             -&gt;assertRedirect();
+
+        $this-&gt;assertDatabaseHas('products', ['title' =&gt; 'کیبورد', 'price' =&gt; 850000]);
+    }
+
+    public function test_validation_fails_without_title(): void
+    {
+        $admin = User::factory()-&gt;create(['role' =&gt; 'admin']);
+
+        $this-&gt;actingAs($admin)
+             -&gt;post('/admin/products', ['price' =&gt; 100])
+             -&gt;assertSessionHasErrors('title');
+    }
+}</code></pre></div></div><div class="note tip"><div class="note-title">نام تست</div><p>نام متد را مثل یک جمله‌ی کوتاه بنویس: <code>test_guest_cannot_create_product</code>. وقتی تستی fail شد، همین نام می‌گوید چه چیزی خراب شده.</p></div></section><section class="lesson" id="assert"><div class="lesson-head"><span class="lesson-num">۴</span><h2>Assertionهای پرکاربرد</h2></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>متد</th><th>کار</th></tr></thead><tbody><tr><td><code>assertStatus(200)</code> / <code>assertOk()</code></td><td>کد وضعیت</td></tr><tr><td><code>assertRedirect('/x')</code></td><td>تغییر مسیر</td></tr><tr><td><code>assertSee('متن')</code> / <code>assertDontSee</code></td><td>وجود/نبود متن در HTML</td></tr><tr><td><code>assertViewIs('products.index')</code></td><td>نام view</td></tr><tr><td><code>assertDatabaseHas / Missing / Count</code></td><td>وضعیت جدول</td></tr><tr><td><code>assertSessionHasErrors('title')</code></td><td>خطای فرم</td></tr><tr><td><code>assertJson([...])</code> / <code>assertJsonStructure</code></td><td>پاسخ JSON</td></tr><tr><td><code>assertForbidden()</code> / <code>assertUnauthorized()</code></td><td>۴۰۳ و ۴۰۱</td></tr></tbody></table></div></section><section class="lesson" id="unit"><div class="lesson-head"><span class="lesson-num">۵</span><h2>Unit Test و Factory</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Tests\Unit;
+
+use App\Services\CartCalculator;
+use PHPUnit\Framework\TestCase;
+
+class CartCalculatorTest extends TestCase
+{
+    public function test_discount_applies_over_one_million(): void
+    {
+        $calc = new CartCalculator();
+
+        $this-&gt;assertSame(900000, $calc-&gt;payable(1000000)); // ۱۰٪ تخفیف
+        $this-&gt;assertSame(500000, $calc-&gt;payable(500000));  // بدون تخفیف
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Database\Factories;
+
+use Illuminate\Database\Eloquent\Factories\Factory;
+
+class ProductFactory extends Factory
+{
+    public function definition(): array
+    {
+        return [
+            'title' =&gt; fake()-&gt;words(2, true),
+            'price' =&gt; fake()-&gt;numberBetween(50000, 2000000),
+            'stock' =&gt; fake()-&gt;numberBetween(0, 50),
+        ];
+    }
+
+    public function outOfStock(): static
+    {
+        return $this-&gt;state(fn () =&gt; ['stock' =&gt; 0]);
+    }
+}
+
+// استفاده: Product::factory()-&gt;outOfStock()-&gt;create();</code></pre></div></div></section><section class="lesson" id="fake"><div class="lesson-head"><span class="lesson-num">۶</span><h2>Fake: ایمیل، صف و رویداد را بدون اجرای واقعی تست کن</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Tests\Feature;
+
+use App\Jobs\SendOrderReport;
+use App\Mail\OrderPaid;
+use App\Models\Order;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
+use Tests\TestCase;
+
+class OrderFlowTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_paid_order_sends_mail_and_dispatches_job(): void
+    {
+        Mail::fake();
+        Queue::fake();
+
+        $order = Order::factory()-&gt;create();
+        // ... ثبت پرداخت (کد برنامه‌ی تو) ...
+
+        Mail::assertSent(OrderPaid::class);
+        Queue::assertPushed(SendOrderReport::class);
+    }
+}</code></pre></div></div><p>برای درخواست‌های بیرونی (مثل درگاه پرداخت) هم از <code>Http::fake()</code> استفاده می‌کنیم تا تست‌ها هیچ‌وقت به اینترنت وصل نشوند (در درس درگاه می‌بینی).</p></section><section class="lesson" id="tdd"><div class="lesson-head"><span class="lesson-num">۷</span><h2>ریتم کار: قرمز، سبز، بازنویسی</h2></div><ol><li><b>قرمز:</b> اول تستی بنویس که fail می‌شود (چون قابلیت هنوز نیست).</li><li><b>سبز:</b> کمترین کدی را بنویس که تست pass شود.</li><li><b>بازنویسی:</b> کد را تمیز کن؛ تست نگهبان توست که چیزی خراب نشود.</li></ol><div class="note tip"><div class="note-title">از کجا شروع کنیم؟</div><p>نیازی نیست همه‌چیز را تست کنی. اول بخش‌های حساس: ورود، سفارش و پرداخت، دسترسی‌ها (ادمین/کاربر) و محاسبات پول.</p></div></section><section class="lesson" id="advanced-tests" data-deep="1"><div class="lesson-head"><span class="lesson-num">۸</span><h2>تست‌های واقعی‌تر: API بیرونی، زمان و Mock</h2></div><p>تست خوب نباید به اینترنت، ساعت واقعی یا سرویس پیامک وابسته باشد. لاراول برای همه‌ی این‌ها ابزار آماده دارد.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>use Illuminate\Support\Facades\Http;
+
+public function test_payment_verify_marks_order_paid(): void
+{
+    Http::fake([
+        'gateway.test/verify*' =&gt; Http::response(['status' =&gt; 'success', 'ref' =&gt; 'ABC123'], 200),
+    ]);
+
+    $order = Order::factory()-&gt;create(['status' =&gt; 'pending']);
+
+    $this-&gt;actingAs($order-&gt;user)
+         -&gt;get(route('payment.callback', ['order' =&gt; $order, 'token' =&gt; 'x']))
+         -&gt;assertRedirect(route('orders.show', $order));
+
+    $this-&gt;assertSame('paid', $order-&gt;fresh()-&gt;status);
+    Http::assertSent(fn ($request) =&gt; str_contains($request-&gt;url(), 'gateway.test/verify'));
+}
+
+// ساعت را کنترل کن
+public function test_unpaid_orders_expire_after_30_minutes(): void
+{
+    $order = Order::factory()-&gt;create(['status' =&gt; 'pending']);
+
+    $this-&gt;travel(31)-&gt;minutes();
+    $this-&gt;artisan('orders:release-unpaid')-&gt;assertSuccessful();
+
+    $this-&gt;assertSame('cancelled', $order-&gt;fresh()-&gt;status);
+}
+
+// سرویس را Mock کن
+public function test_sms_is_sent_on_registration(): void
+{
+    $this-&gt;mock(SmsSender::class, function ($mock) {
+        $mock-&gt;shouldReceive('send')-&gt;once()-&gt;with('09120000000', \Mockery::type('string'));
+    });
+
+    $this-&gt;post('/register', [/* ... */])-&gt;assertRedirect();
+}</code></pre></div></div><div class="note tip"><div class="note-title">قانون ساده</div><p>همه‌چیز بیرون از برنامه (HTTP، ایمیل، پیامک، صف، زمان) را در تست Fake یا Mock کن؛ هر چه داخل برنامه است (دیتابیس، Eloquent، Routeها) را واقعی بگذار. تست‌ها هم سریع می‌شوند و هم قابل‌اعتماد.</p></div></section><section class="lesson" id="data-provider" data-deep="1"><div class="lesson-head"><span class="lesson-num">۹</span><h2>داده‌محور، Factory State و سرعت</h2></div><p>به‌جای نوشتن ده تست شبیه هم برای ورودی‌های مختلف، یک تست با چند داده بنویس:</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>use PHPUnit\Framework\Attributes\DataProvider;
+
+#[DataProvider('invalidPhones')]
+public function test_phone_validation_fails(string $phone): void
+{
+    $this-&gt;post('/register', ['phone' =&gt; $phone] + $this-&gt;validData())
+         -&gt;assertSessionHasErrors('phone');
+}
+
+public static function invalidPhones(): array
+{
+    return [
+        'کوتاه'      =&gt; ['0912'],
+        'حروف'       =&gt; ['0912abcdefg'],
+        'پیش‌شماره'  =&gt; ['02112345678'],
+        'خالی'       =&gt; [''],
+    ];
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// database/factories/OrderFactory.php: حالت‌های آماده (State)
+public function paid(): static
+{
+    return $this-&gt;state(fn () =&gt; ['status' =&gt; 'paid', 'paid_at' =&gt; now()]);
+}
+public function withItems(int $n = 3): static
+{
+    return $this-&gt;has(OrderItem::factory()-&gt;count($n), 'items');
+}
+
+// در تست
+$order = Order::factory()-&gt;paid()-&gt;withItems(2)-&gt;create();</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan test --parallel            # اجرای موازی (نیاز به paratest)
+php artisan test --filter=payment      # فقط تست‌هایی که اسمشان شامل payment است
+php artisan test --stop-on-failure     # با اولین خطا متوقف شو
+php artisan test --coverage --min=70   # پوشش تست؛ نیاز به PCOV یا Xdebug</code></pre></div></div><ul><li><code>RefreshDatabase</code> برای هر تست دیتابیس را تمیز می‌کند. با SQLite حافظه‌ای سریع است، ولی قبل از انتشار یک بار روی MySQL واقعی هم اجرا کن.</li><li>تست «مسیر شاد» (Happy path) کافی نیست: ورودی نامعتبر، کاربر بدون دسترسی و حالت خالی را هم تست کن.</li><li>هر باگی که در پروداکشن پیدا کردی، <b>اول یک تست بنویس که آن را نشان دهد</b>، بعد درستش کن. این‌طور دوباره برنمی‌گردد.</li></ul></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۱۰</span><h2>اشتباه‌های رایج</h2></div><ol><li>فراموش‌کردن <code>RefreshDatabase</code> و وابستگی تست‌ها به هم.</li><li>اجرای تست روی دیتابیس اصلی؛ همیشه <code>phpunit.xml</code> را چک کن.</li><li>تست‌هایی که به ترتیب اجرا یا داده‌ی قبلی وابسته‌اند.</li><li>تست‌نوشتن برای جزئیات پیاده‌سازی (نه رفتار)؛ رفتار را تست کن: «کاربر مهمان نمی‌تواند محصول بسازد».</li><li>نادیده‌گرفتن تست fail شده و «بعداً درستش می‌کنم».</li><li>تستی که به اینترنت واقعی یا ساعت واقعی وابسته است و گاهی قرمز می‌شود (Flaky).</li><li>فقط تست «موفق» نوشتن و ندیدن خطاهای دسترسی و اعتبارسنجی.</li><li>Mock بیش‌ازحد: اگر هر چیزی را Mock کنی، تست دیگر چیزی را ثابت نمی‌کند.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>برای صفحه‌ی لیست محصولات یک Feature Test بنویس که محصول ناموجود را نشان ندهد (از <code>inStock</code> استفاده کن).</li><li>تست بنویس که کاربر عادی نتواند به <code>/admin</code> برود (۴۰۳).</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li>یک کلاس <code>CartCalculator</code> بنویس و با Unit Test سه سناریو را بسنج: بدون تخفیف، تخفیف ۱۰٪، تخفیف ۱۵٪.</li><li>یک مورد را عمداً خراب کن و ببین تست قرمز می‌شود.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>تست ثبت‌نام را بنویس: ثبت‌نام موفق، ایمیل تکراری و رمز کوتاه.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۴</div><ol><li>برای پروژه‌ی فروشگاه یک تست با <code>Http::fake</code> برای بازگشت از درگاه بنویس (پرداخت موفق و ناموفق).</li><li>یک تست با <code>travel()</code> بنویس که ثابت کند سفارش پرداخت‌نشده بعد از ۳۰ دقیقه لغو می‌شود.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۵</div><ol><li>اعتبارسنجی شماره موبایل را با DataProvider و حداقل ۶ ورودی نامعتبر تست کن.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://laravel.com/docs/13.x/testing" target="_blank" rel="noopener">Testing: Getting Started</a> — <a href="https://laravel.com/docs/13.x/http-tests" target="_blank" rel="noopener">HTTP Tests</a> — <a href="https://laravel.com/docs/13.x/database-testing" target="_blank" rel="noopener">Database Testing</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="l2-eloquent-advanced.html">→ بخش قبل: Eloquent پیشرفته: Scope، Accessor و Eager Loading</a><a href="l2-api-resources.html">بعدی: ساخت API و Resource ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

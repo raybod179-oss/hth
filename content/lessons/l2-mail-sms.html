@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۲ · درس 7 | ایمیل و پیامک</title><meta name="description" content="ارسال ایمیل با Mailable و Markdown، صف‌کردن ایمیل، ساخت سرویس پیامک با Interface، کانال سفارشی Notification، OTP امن و تست با fake.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۲ · درس 7</span><h1>ایمیل و پیامک</h1><p>ایمیل رسید و پیامک کد تایید دو چیزی هستند که تقریباً هر سایت واقعی لازم دارد. اینجا یاد می‌گیری آن‌ها را تمیز، قابل‌تست و قابل‌تعویض بنویسی.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#setup">تنظیم ایمیل</a></li><li><a href="#mailable">ساخت Mailable با قالب Markdown</a></li><li><a href="#sms">پیامک: Service با Interface</a></li><li><a href="#channel">کانال سفارشی برای Notification</a></li><li><a href="#otp">کد تایید (OTP) درست</a></li><li><a href="#test">تست بدون ارسال واقعی</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="setup"><div class="lesson-head"><span class="lesson-num">۱</span><h2>تنظیم ایمیل</h2></div><p>در توسعه‌ی محلی لازم نیست ایمیل واقعی بفرستی. پیش‌فرض <code>MAIL_MAILER=log</code> است و ایمیل‌ها در <code>storage/logs/laravel.log</code> نوشته می‌شوند. برای دیدن ظاهر ایمیل می‌توانی از سرویس‌های تست مثل Mailtrap یا Mailpit استفاده کنی.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">text</span></div><pre><code># .env (نمونه‌ی SMTP؛ مقدارها را از سرویس‌دهنده بگیر)
+MAIL_MAILER=smtp
+MAIL_HOST=smtp.example.com
+MAIL_PORT=587
+MAIL_USERNAME=your-username
+MAIL_PASSWORD=your-password
+MAIL_FROM_ADDRESS="no-reply@yourdomain.com"
+MAIL_FROM_NAME="${APP_NAME}"</code></pre></div></div><div class="note warn"><div class="note-title">رمز در گیت نرود</div><p>اطلاعات SMTP فقط در <code>.env</code> باشد؛ آن را commit نکن.</p></div></section><section class="lesson" id="mailable"><div class="lesson-head"><span class="lesson-num">۲</span><h2>ساخت Mailable با قالب Markdown</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan make:mail OrderPaid --markdown=mail.orders.paid</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Mail;
+
+use App\Models\Order;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Content;
+use Illuminate\Mail\Mailables\Envelope;
+use Illuminate\Queue\SerializesModels;
+
+class OrderPaid extends Mailable implements ShouldQueue
+{
+    use Queueable, SerializesModels;
+
+    public function __construct(public Order $order) {}
+
+    public function envelope(): Envelope
+    {
+        return new Envelope(subject: 'رسید پرداخت سفارش '.$this-&gt;order-&gt;number);
+    }
+
+    public function content(): Content
+    {
+        return new Content(
+            markdown: 'mail.orders.paid',
+            with: ['url' =&gt; url('/orders/'.$this-&gt;order-&gt;id)],
+        );
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">html</span></div><pre><code>&lt;x-mail::message&gt;
+# سلام {{ $order-&gt;user-&gt;name }}
+
+پرداخت سفارش **{{ $order-&gt;number }}** با مبلغ {{ number_format($order-&gt;total) }} تومان تأیید شد.
+
+&lt;x-mail::button :url="$url"&gt;
+مشاهده‌ی سفارش
+&lt;/x-mail::button&gt;
+
+ممنون،&lt;br&gt;
+{{ config('app.name') }}
+&lt;/x-mail::message&gt;</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+use App\Mail\OrderPaid;
+use Illuminate\Support\Facades\Mail;
+
+Mail::to($order-&gt;user)-&gt;send(new OrderPaid($order));    // همین لحظه
+Mail::to($order-&gt;user)-&gt;queue(new OrderPaid($order));   // در صف (ترجیح: کاربر معطل نمی‌ماند)</code></pre></div></div><div class="note tip"><div class="note-title">ظاهر ایمیل</div><p>قالب‌های Markdown را با <code>php artisan vendor:publish --tag=laravel-mail</code> می‌توانی شخصی‌سازی کنی (لوگو، رنگ). ایمیل‌ها در بسیاری از برنامه‌های ایمیل راست‌به‌چپ را خوب نشان نمی‌دهند؛ بعد از ساخت، حتماً در Gmail و موبایل تست کن.</p></div></section><section class="lesson" id="sms"><div class="lesson-head"><span class="lesson-num">۳</span><h2>پیامک: Service با Interface</h2></div><p>لاراول پیامک داخلی ندارد؛ هر سرویس‌دهنده (کاوه‌نگار، ملی‌پیامک، sms.ir و ...) API خودش را دارد. کار درست این است که یک <b>Interface</b> بسازی و هر سرویس‌دهنده یک پیاده‌سازی باشد؛ اگر روزی سرویس‌دهنده را عوض کنی، فقط یک کلاس عوض می‌شود.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Services\Sms;
+
+interface SmsSender
+{
+    public function send(string $to, string $message): void;
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Services\Sms;
+
+use Illuminate\Support\Facades\Http;
+use RuntimeException;
+
+// نمونه: ارسال از طریق یک API وب‌سرویس. آدرس و نام فیلدها را
+// طبق مستندات رسمی «سرویس‌دهنده‌ی خودت» تنظیم کن.
+class HttpSmsSender implements SmsSender
+{
+    public function send(string $to, string $message): void
+    {
+        $response = Http::timeout(10)
+            -&gt;retry(2, 200)
+            -&gt;acceptJson()
+            -&gt;post(config('services.sms.url'), [
+                'api_key'  =&gt; config('services.sms.key'),
+                'receptor' =&gt; $to,
+                'message'  =&gt; $message,
+            ]);
+
+        if ($response-&gt;failed()) {
+            throw new RuntimeException('SMS failed: '.$response-&gt;status());
+        }
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Services\Sms;
+
+use Illuminate\Support\Facades\Log;
+
+// برای توسعه: به‌جای ارسال واقعی فقط لاگ می‌زند (هزینه‌ی پیامک نمی‌دهی)
+class LogSmsSender implements SmsSender
+{
+    public function send(string $to, string $message): void
+    {
+        Log::info("SMS to {$to}: {$message}");
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Providers;
+
+use App\Services\Sms\HttpSmsSender;
+use App\Services\Sms\LogSmsSender;
+use App\Services\Sms\SmsSender;
+use Illuminate\Support\ServiceProvider;
+
+class AppServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        // محلی: لاگ؛ پروداکشن: ارسال واقعی
+        $this-&gt;app-&gt;bind(SmsSender::class, fn () =&gt; $this-&gt;app-&gt;isProduction()
+            ? new HttpSmsSender()
+            : new LogSmsSender());
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+// config/services.php
+return [
+    // ...
+    'sms' =&gt; [
+        'url' =&gt; env('SMS_URL'),
+        'key' =&gt; env('SMS_API_KEY'),
+    ],
+];</code></pre></div></div><div class="note warn"><div class="note-title">کلید API</div><p>کلید سرویس پیامک را فقط در <code>.env</code> بگذار و از طریق <code>config()</code> بخوان. اگر در گیت برود، دیگران با هزینه‌ی تو پیامک می‌فرستند.</p></div></section><section class="lesson" id="channel"><div class="lesson-head"><span class="lesson-num">۴</span><h2>کانال سفارشی برای Notification</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Notifications\Channels;
+
+use App\Services\Sms\SmsSender;
+use Illuminate\Notifications\Notification;
+
+class SmsChannel
+{
+    public function __construct(private SmsSender $sms) {}
+
+    public function send(object $notifiable, Notification $notification): void
+    {
+        if (! $notifiable-&gt;phone) {
+            return;
+        }
+
+        $this-&gt;sms-&gt;send($notifiable-&gt;phone, $notification-&gt;toSms($notifiable));
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Notifications;
+
+use App\Models\Order;
+use App\Notifications\Channels\SmsChannel;
+use Illuminate\Notifications\Notification;
+
+class OrderPaidNotification extends Notification
+{
+    public function __construct(public Order $order) {}
+
+    public function via(object $notifiable): array
+    {
+        return ['mail', SmsChannel::class];   // ایمیل + پیامک
+    }
+
+    public function toSms(object $notifiable): string
+    {
+        return 'سفارش '.$this-&gt;order-&gt;number.' پرداخت شد. Rayvo';
+    }
+}</code></pre></div></div></section><section class="lesson" id="otp"><div class="lesson-head"><span class="lesson-num">۵</span><h2>کد تایید (OTP) درست</h2></div><ol><li>کد ۴ تا ۶ رقمی تصادفی با <code>random_int()</code> بساز (نه <code>rand</code>).</li><li>کد را هش‌شده یا با انقضای کوتاه (مثلاً ۲ دقیقه) ذخیره کن (جدول یا Cache).</li><li>تعداد تلاش و تعداد درخواست ارسال را محدود کن (<code>throttle</code> و شمارنده‌ی تلاش).</li><li>بعد از استفاده‌ی موفق، کد را حذف کن.</li></ol><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Hash;
+
+$code = (string) random_int(100000, 999999);
+Cache::put("otp:{$phone}", Hash::make($code), now()-&gt;addMinutes(2));
+$sms-&gt;send($phone, "کد ورود شما: {$code}");
+
+// تایید
+$hash = Cache::get("otp:{$phone}");
+if ($hash &amp;&amp; Hash::check($request-&gt;code, $hash)) {
+    Cache::forget("otp:{$phone}");
+    // ورود موفق
+}</code></pre></div></div></section><section class="lesson" id="test"><div class="lesson-head"><span class="lesson-num">۶</span><h2>تست بدون ارسال واقعی</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Tests\Feature;
+
+use App\Mail\OrderPaid;
+use App\Models\Order;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
+use Tests\TestCase;
+
+class MailSmsTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_mail_content(): void
+    {
+        Mail::fake();
+        $order = Order::factory()-&gt;create();
+
+        Mail::to('a@b.com')-&gt;send(new OrderPaid($order));
+
+        Mail::assertSent(OrderPaid::class, fn ($m) =&gt; $m-&gt;hasTo('a@b.com'));
+    }
+
+    public function test_http_sms_calls_provider(): void
+    {
+        config(['services.sms.url' =&gt; 'https://sms.test/send', 'services.sms.key' =&gt; 'k']);
+        Http::fake(['sms.test/*' =&gt; Http::response(['ok' =&gt; true], 200)]);
+
+        (new \App\Services\Sms\HttpSmsSender())-&gt;send('09120000000', 'سلام');
+
+        Http::assertSent(fn ($r) =&gt; $r-&gt;url() === 'https://sms.test/send');
+    }
+}</code></pre></div></div></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۷</span><h2>اشتباه‌های رایج</h2></div><ol><li>فرستادن ایمیل/پیامک هم‌زمان داخل درخواست کاربر؛ به صف بسپار.</li><li>ذخیره‌ی کلید API در کد یا گیت.</li><li>OTP بدون انقضا و بدون محدودیت تلاش (قابل حدس‌زدن).</li><li>تست با سرویس واقعی و پرداخت هزینه؛ از <code>Mail::fake</code> و <code>Http::fake</code> استفاده کن.</li><li>ایمیل‌هایی که به اسپم می‌روند: دامنه‌ی فرستنده را با SPF/DKIM تنظیم کن (با پشتیبانی هاست).</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>ایمیل «خوش‌آمدگویی» با Markdown بساز، با <code>MAIL_MAILER=log</code> بفرست و خروجی را در لاگ ببین.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li><code>SmsSender</code> و <code>LogSmsSender</code> را بنویس و در ثبت‌نام، کد تایید را از طریق لاگ «ارسال» کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>OTP را با Cache و انقضای ۲ دقیقه پیاده کن و بعد از ۵ تلاش اشتباه، ۱۰ دقیقه مسدود کن.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://laravel.com/docs/13.x/mail" target="_blank" rel="noopener">Mail</a> — <a href="https://laravel.com/docs/13.x/http-client" target="_blank" rel="noopener">HTTP Client</a> — <a href="https://laravel.com/docs/13.x/notifications#custom-channels" target="_blank" rel="noopener">Notifications: Custom Channels</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="l2-events-notifications.html">→ بخش قبل: Event، Listener و Notification</a><a href="l2-scheduler.html">بعدی: Scheduler و کارهای زمان‌بندی‌شده ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

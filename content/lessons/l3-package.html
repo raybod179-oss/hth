@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۳ · درس 10 | ساخت پکیج لاراول</title><meta name="description" content="ساخت و انتشار پکیج لاراول: ساختار، Service Provider، Facade، config قابل‌انتشار، Blade directive، تست با Testbench، Path Repository و Packagist.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۳ · درس 10</span><h1>ساخت پکیج لاراول</h1><p>اگر یک کد را چندجا کپی کرده‌ای، یعنی پکیج است. در این درس یک پکیج واقعی می‌سازی، تست می‌کنی و منتشر می‌کنی؛ هم ابزار کار حرفه‌ای هم رزومه‌ی عمومی.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#why">چرا پکیج بسازیم؟</a></li><li><a href="#structure">ساختار پکیج نمونه: rayvo/persian-tools</a></li><li><a href="#code">کد اصلی</a></li><li><a href="#local">تست پکیج داخل یک پروژه‌ی واقعی (Path Repository)</a></li><li><a href="#test">تست پکیج با Testbench</a></li><li><a href="#publish">انتشار روی GitHub و Packagist</a></li><li><a href="#provider-deep">ServiceProvider حرفه‌ای: کانفیگ، مایگریشن، View و دستور</a></li><li><a href="#release">انتشار حرفه‌ای: نسخه‌بندی، CI و مستندات</a></li><li><a href="#testbench">تست پکیج با Testbench</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="why"><div class="lesson-head"><span class="lesson-num">۱</span><h2>چرا پکیج بسازیم؟</h2></div><p>وقتی یک کد را در دو یا سه پروژه کپی می‌کنی (مثلاً توابع فارسی‌سازی، اتصال به درگاه یا یک کامپوننت Blade)، وقتشان رسیده که به یک «پکیج» تبدیل شود: یک‌بار می‌نویسی، با <code>composer require</code> همه‌جا نصب می‌کنی و بهبودها به همه‌ی پروژه‌ها می‌رسد. پکیج‌های عمومی روی GitHub و Packagist هم یکی از بهترین ارزش‌ها برای رزومه و برند شخصی هستند.</p></section><section class="lesson" id="structure"><div class="lesson-head"><span class="lesson-num">۲</span><h2>ساختار پکیج نمونه: rayvo/persian-tools</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">text</span></div><pre><code>persian-tools/
+├── composer.json
+├── README.md
+├── LICENSE
+├── config/
+│   └── persian-tools.php
+├── src/
+│   ├── PersianToolsServiceProvider.php
+│   ├── PersianTools.php
+│   └── Facades/PersianTools.php
+└── tests/
+    └── PersianToolsTest.php</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">json</span></div><pre><code>{
+    "name": "rayvo/persian-tools",
+    "description": "ابزارهای فارسی برای لاراول: ارقام، اسلاگ، مبلغ",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "illuminate/support": "^11.0|^12.0|^13.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^9.0|^10.0"
+    },
+    "autoload": {
+        "psr-4": { "Rayvo\\PersianTools\\": "src/" }
+    },
+    "autoload-dev": {
+        "psr-4": { "Rayvo\\PersianTools\\Tests\\": "tests/" }
+    },
+    "extra": {
+        "laravel": {
+            "providers": ["Rayvo\\PersianTools\\PersianToolsServiceProvider"],
+            "aliases": { "PersianTools": "Rayvo\\PersianTools\\Facades\\PersianTools" }
+        }
+    },
+    "minimum-stability": "stable"
+}</code></pre></div></div><div class="note info"><div class="note-title">Auto-Discovery</div><p>بخش <code>extra.laravel</code> باعث می‌شود Service Provider و Facade بعد از نصب خودکار ثبت شوند و کاربر چیزی را دستی تنظیم نکند. نسخه‌های <code>require</code> را بر اساس نسخه‌های واقعاً پشتیبانی‌شده‌ی خودت تنظیم کن (و تست کن).</p></div></section><section class="lesson" id="code"><div class="lesson-head"><span class="lesson-num">۳</span><h2>کد اصلی</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Rayvo\PersianTools;
+
+class PersianTools
+{
+    public function __construct(private array $config = []) {}
+
+    public function toEnglishDigits(string $value): string
+    {
+        return strtr($value, [
+            '۰' =&gt; '0', '۱' =&gt; '1', '۲' =&gt; '2', '۳' =&gt; '3', '۴' =&gt; '4',
+            '۵' =&gt; '5', '۶' =&gt; '6', '۷' =&gt; '7', '۸' =&gt; '8', '۹' =&gt; '9',
+        ]);
+    }
+
+    public function toPersianDigits(string|int $value): string
+    {
+        return strtr((string) $value, [
+            '0' =&gt; '۰', '1' =&gt; '۱', '2' =&gt; '۲', '3' =&gt; '۳', '4' =&gt; '۴',
+            '5' =&gt; '۵', '6' =&gt; '۶', '7' =&gt; '۷', '8' =&gt; '۸', '9' =&gt; '۹',
+        ]);
+    }
+
+    public function money(int $amount): string
+    {
+        $unit = $this-&gt;config['currency_label'] ?? 'تومان';
+        $text = number_format($amount);
+
+        return ($this-&gt;config['persian_digits'] ?? true)
+            ? $this-&gt;toPersianDigits($text).' '.$unit
+            : $text.' '.$unit;
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Rayvo\PersianTools\Facades;
+
+use Illuminate\Support\Facades\Facade;
+
+/**
+ * @method static string toEnglishDigits(string $value)
+ * @method static string toPersianDigits(string|int $value)
+ * @method static string money(int $amount)
+ */
+class PersianTools extends Facade
+{
+    protected static function getFacadeAccessor(): string
+    {
+        return \Rayvo\PersianTools\PersianTools::class;
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+// config/persian-tools.php
+return [
+    'currency_label' =&gt; 'تومان',
+    'persian_digits' =&gt; true,
+];</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Rayvo\PersianTools;
+
+use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\ServiceProvider;
+
+class PersianToolsServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        $this-&gt;mergeConfigFrom(__DIR__.'/../config/persian-tools.php', 'persian-tools');
+
+        $this-&gt;app-&gt;singleton(PersianTools::class, fn ($app) =&gt; new PersianTools($app['config']['persian-tools']));
+    }
+
+    public function boot(): void
+    {
+        // php artisan vendor:publish --tag=persian-tools-config
+        $this-&gt;publishes([
+            __DIR__.'/../config/persian-tools.php' =&gt; config_path('persian-tools.php'),
+        ], 'persian-tools-config');
+
+        // @toman(850000)  ←  ۸۵۰,۰۰۰ تومان
+        Blade::directive('toman', fn (string $expression) =&gt; "&lt;?php echo app(\\Rayvo\\PersianTools\\PersianTools::class)-&gt;money((int) ({$expression})); ?&gt;");
+
+        // اگر پکیج روت/view/migration دارد:
+        // $this-&gt;loadRoutesFrom(__DIR__.'/../routes/web.php');
+        // $this-&gt;loadViewsFrom(__DIR__.'/../resources/views', 'persian-tools');
+        // $this-&gt;loadMigrationsFrom(__DIR__.'/../database/migrations');
+    }
+}</code></pre></div></div></section><section class="lesson" id="local"><div class="lesson-head"><span class="lesson-num">۴</span><h2>تست پکیج داخل یک پروژه‌ی واقعی (Path Repository)</h2></div><p>لازم نیست قبل از انتشار، پکیج را جایی آپلود کنی. در پروژه‌ی لاراولی که داری، پوشه‌ی پکیج را کنار پروژه یا داخل <code>packages/</code> بگذار و به Composer بگو از مسیر محلی نصبش کند (به‌صورت symlink؛ هر تغییر فوری اثر می‌کند).</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">json</span></div><pre><code>{
+    "repositories": [
+        { "type": "path", "url": "packages/rayvo/persian-tools", "options": { "symlink": true } }
+    ]
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>composer require rayvo/persian-tools:@dev
+php artisan vendor:publish --tag=persian-tools-config</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+use Rayvo\PersianTools\Facades\PersianTools;
+
+echo PersianTools::money(850000);      // ۸۵۰,۰۰۰ تومان
+echo PersianTools::toEnglishDigits('۰۹۱۲۳۴۵۶۷۸۹');  // 09123456789
+// در Blade:  @toman($product-&gt;price)</code></pre></div></div></section><section class="lesson" id="test"><div class="lesson-head"><span class="lesson-num">۵</span><h2>تست پکیج با Testbench</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Rayvo\PersianTools\Tests;
+
+use Orchestra\Testbench\TestCase;
+use Rayvo\PersianTools\Facades\PersianTools;
+use Rayvo\PersianTools\PersianToolsServiceProvider;
+
+class PersianToolsTest extends TestCase
+{
+    protected function getPackageProviders($app): array
+    {
+        return [PersianToolsServiceProvider::class];
+    }
+
+    public function test_converts_digits(): void
+    {
+        $this-&gt;assertSame('09123456789', PersianTools::toEnglishDigits('۰۹۱۲۳۴۵۶۷۸۹'));
+    }
+
+    public function test_formats_money(): void
+    {
+        $this-&gt;assertSame('۱,۰۰۰ تومان', PersianTools::money(1000));
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>composer require --dev orchestra/testbench
+./vendor/bin/phpunit</code></pre></div></div></section><section class="lesson" id="publish"><div class="lesson-head"><span class="lesson-num">۶</span><h2>انتشار روی GitHub و Packagist</h2></div><ol><li>یک Repository عمومی در GitHub بساز و کد را push کن. فایل‌های <code>README.md</code> (نصب، استفاده، مثال) و <code>LICENSE</code> (مثلاً MIT) را حتماً بگذار.</li><li>نسخه را با تگ <b>Semantic Versioning</b> بزن: <code>git tag v1.0.0 && git push --tags</code>.</li><li>در packagist.org وارد شو (با GitHub) و آدرس ریپو را Submit کن؛ از آن به بعد <code>composer require rayvo/persian-tools</code> برای همه کار می‌کند.</li><li>Webhook گیت‌هاب را فعال کن تا نسخه‌های جدید خودکار در Packagist بیایند.</li></ol><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>تغییر</th><th>نسخه</th></tr></thead><tbody><tr><td>رفع باگ سازگار با قبل</td><td>PATCH: <code>1.0.1</code></td></tr><tr><td>قابلیت جدید سازگار با قبل</td><td>MINOR: <code>1.1.0</code></td></tr><tr><td>تغییر ناسازگار با قبل</td><td>MAJOR: <code>2.0.0</code></td></tr></tbody></table></div><div class="note tip"><div class="note-title">ارزش برند</div><p>یک پکیج کوچک اما تمیز با README خوب، تست و CI سبز، در رزومه‌ی تو بهتر از ده پروژه‌ی نصفه می‌نشیند. بعد از درس CI/CD می‌توانی تست‌ها را روی هر push خودکار اجرا کنی.</p></div></section><section class="lesson" id="provider-deep" data-deep="1"><div class="lesson-head"><span class="lesson-num">۷</span><h2>ServiceProvider حرفه‌ای: کانفیگ، مایگریشن، View و دستور</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>namespace Rayvo\Sms;
+
+use Illuminate\Support\ServiceProvider;
+
+class SmsServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        // مقدار پیش‌فرض کانفیگ؛ کاربر می‌تواند فقط بخشی را override کند
+        $this-&gt;mergeConfigFrom(__DIR__ . '/../config/sms.php', 'sms');
+
+        $this-&gt;app-&gt;singleton(SmsManager::class, fn ($app) =&gt; new SmsManager($app['config']['sms']));
+    }
+
+    public function boot(): void
+    {
+        $this-&gt;loadMigrationsFrom(__DIR__ . '/../database/migrations');
+        $this-&gt;loadViewsFrom(__DIR__ . '/../resources/views', 'sms');
+        $this-&gt;loadTranslationsFrom(__DIR__ . '/../lang', 'sms');
+        $this-&gt;loadRoutesFrom(__DIR__ . '/../routes/web.php');
+
+        if ($this-&gt;app-&gt;runningInConsole()) {
+            $this-&gt;publishes([__DIR__ . '/../config/sms.php' =&gt; config_path('sms.php')], 'sms-config');
+            $this-&gt;publishes([__DIR__ . '/../resources/views' =&gt; resource_path('views/vendor/sms')], 'sms-views');
+            $this-&gt;commands([Console\SendTestSms::class]);
+        }
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">json</span></div><pre><code>// composer.json: کشف خودکار (کاربر لازم نیست Provider را دستی ثبت کند)
+{
+  "name": "rayvo/laravel-sms",
+  "description": "Simple SMS gateway abstraction for Laravel",
+  "type": "library",
+  "license": "MIT",
+  "require": { "php": "^8.2", "illuminate/support": "^11.0|^12.0" },
+  "require-dev": { "orchestra/testbench": "^9.0|^10.0", "phpunit/phpunit": "^11.0" },
+  "autoload": { "psr-4": { "Rayvo\\Sms\\": "src/" } },
+  "extra": {
+    "laravel": {
+      "providers": ["Rayvo\\Sms\\SmsServiceProvider"],
+      "aliases": { "Sms": "Rayvo\\Sms\\Facades\\Sms" }
+    }
+  }
+}</code></pre></div></div><ul><li><code>mergeConfigFrom</code> در <code>register</code>، و <code>publishes</code> فقط در حالت کنسول (<code>runningInConsole</code>) تا درخواست‌های وب سنگین نشوند.</li><li>برای publish یک تگ (<code>sms-config</code>) بده تا کاربر فقط همان را منتشر کند: <code>php artisan vendor:publish --tag=sms-config</code>.</li><li>نسخه‌های سازگار را در <code>require</code> دقیق بنویس و در CI روی همه‌ی آن‌ها تست کن.</li></ul></section><section class="lesson" id="release" data-deep="1"><div class="lesson-head"><span class="lesson-num">۸</span><h2>انتشار حرفه‌ای: نسخه‌بندی، CI و مستندات</h2></div><ol><li><b>README خوب:</b> نصب (یک دستور)، تنظیم (<code>.env</code> و config)، مثال کوچک و کامل، سناریوی خطا، و جدول نسخه‌های سازگار PHP/Laravel.</li><li><b>نسخه‌بندی معنایی (SemVer):</b> <code>1.4.2</code> = «تغییر شکننده».«قابلیت جدید».«رفع باگ». تغییر ناسازگار فقط با افزایش عدد اول.</li><li><b>CHANGELOG</b> و Tag در Git: <code>git tag v1.0.0 && git push --tags</code>.</li><li><b>CI:</b> تست روی ماتریس PHP و لاراول (همان Workflow درس CI/CD) و <code>pint</code> برای استایل.</li><li><b>لایسنس:</b> فایل <code>LICENSE</code> (MIT رایج‌ترین است)؛ بدون آن دیگران قانوناً نمی‌توانند استفاده کنند.</li><li><b>Packagist:</b> مخزن عمومی GitHub را در packagist.org ثبت کن؛ هر Tag جدید خودکار نسخه‌ی جدید می‌شود. برای پکیج خصوصی (مشتری/شرکت) از <b>Satis</b> یا مخزن خصوصی Composer یا ریپازیتوری <code>vcs</code> استفاده کن.</li></ol><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">json</span></div><pre><code>// نصب پکیج خصوصی از Git در پروژه‌ی دیگر
+"repositories": [{ "type": "vcs", "url": "git@github.com:rayvo/laravel-sms.git" }],
+"require": { "rayvo/laravel-sms": "^1.0" }</code></pre></div></div><div class="note tip"><div class="note-title">هدف پکیج</div><p>پکیج خوب یک مشکل را خوب حل می‌کند. اگر قابلیت‌های نامربوط اضافه کنی، نگه‌داری سخت می‌شود. یک پکیج کوچک و مستند، بهتر از یک پکیج بزرگ و رهاشده است.</p></div></section><section class="lesson" id="testbench" data-deep="1"><div class="lesson-head"><span class="lesson-num">۹</span><h2>تست پکیج با Testbench</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// tests/TestCase.php
+namespace Rayvo\Sms\Tests;
+
+use Orchestra\Testbench\TestCase as Orchestra;
+use Rayvo\Sms\SmsServiceProvider;
+
+abstract class TestCase extends Orchestra
+{
+    protected function getPackageProviders($app): array
+    {
+        return [SmsServiceProvider::class];
+    }
+
+    protected function defineEnvironment($app): void
+    {
+        $app['config']-&gt;set('sms.driver', 'log');
+    }
+}
+
+// tests/SmsTest.php
+public function test_sms_manager_is_resolved_and_uses_config(): void
+{
+    $this-&gt;assertInstanceOf(\Rayvo\Sms\SmsManager::class, app(\Rayvo\Sms\SmsManager::class));
+    $this-&gt;assertSame('log', config('sms.driver'));
+}</code></pre></div></div><p>Testbench یک اپلیکیشن لاراول کوچک برای تست پکیج بالا می‌آورد؛ پس نیازی به یک پروژه‌ی کامل نداری. هر کاری که پکیج روی کانفیگ، مسیر و مایگریشن می‌کند، همین‌جا تست‌پذیر است.</p></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۱۰</span><h2>اشتباه‌های رایج</h2></div><ol><li>قرار دادن کلید/رمز واقعی در پکیج یا فایل config آن.</li><li>نداشتن تست و ناسازگاری ناگهانی با نسخه‌ی جدید لاراول.</li><li>وابسته‌کردن بی‌دلیل پکیج به کل <code>laravel/framework</code> به‌جای <code>illuminate/support</code> و اجزای لازم.</li><li>تغییر ناسازگار در نسخه‌ی PATCH/MINOR (باید MAJOR باشد).</li><li>README ناقص؛ کسی که نتواند در ۲ دقیقه نصب و استفاده کند، پکیج را رها می‌کند.</li><li>فراموش‌کردن <code>composer dump-autoload</code> بعد از تغییر ساختار.</li><li>ثبت‌کردن چیزهای سنگین در <code>boot</code> بدون شرط <code>runningInConsole</code>.</li><li>بدون <code>extra.laravel.providers</code>؛ کاربر باید Provider را دستی ثبت کند.</li><li>تغییر ناسازگار بدون افزایش عدد اول نسخه (SemVer).</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>پکیج <code>persian-tools</code> را بساز، با Path Repository در پروژه‌ی فروشگاه نصب کن و در Blade از <code>@toman</code> استفاده کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li>یک تابع <code>slug()</code> (از درس فارسی‌سازی) به پکیج اضافه کن و تست بنویس.</li><li>یک فایل config برای تغییر نشانه‌ی پول (تومان/ریال) اضافه کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>پکیج را روی GitHub بگذار، تگ <code>v1.0.0</code> بزن و در Packagist ثبت کن؛ سپس در یک پروژه‌ی جدید از Packagist نصبش کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۴</div><ol><li>پکیج کوچک «ارسال پیامک» را با Provider، config قابل‌انتشار، Facade و دستور Artisan بساز و با Testbench دو تست برایش بنویس.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۵</div><ol><li>پکیج را در یک مخزن Git خصوصی بگذار، Tag <code>v0.1.0</code> بزن و آن را از طریق <code>repositories: vcs</code> در پروژه‌ی دیگری نصب کن.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://laravel.com/docs/13.x/packages" target="_blank" rel="noopener">Package Development</a> — <a href="https://packages.tools/testbench" target="_blank" rel="noopener">Orchestra Testbench</a> — <a href="https://packagist.org/" target="_blank" rel="noopener">Packagist</a> — <a href="https://semver.org/" target="_blank" rel="noopener">Semantic Versioning</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="l3-advanced-security.html">→ بخش قبل: امنیت پیشرفته</a><a href="project-marketplace.html">بعدی: پروژه‌ی پایانی: مارکت‌پلیس چندفروشنده ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

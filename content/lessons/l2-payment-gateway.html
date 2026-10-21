@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۲ · درس 10 | اتصال درگاه پرداخت</title><meta name="description" content="اتصال امن درگاه پرداخت ایرانی در لاراول: جریان درخواست و Verify، Interface و Adapter، جدول payments، تراکنش و قفل، callback امن و تست با Http::fake.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۲ · درس 10</span><h1>اتصال درگاه پرداخت</h1><p>پرداخت حساس‌ترین بخش یک فروشگاه است. اینجا الگویی را یاد می‌گیری که با هر درگاهی کار می‌کند و جلوی خطاهای رایج (پرداخت جعلی، ثبت تکراری) را می‌گیرد.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#flow">جریان پرداخت اینترنتی</a></li><li><a href="#design">طراحی تمیز: Interface + جدول payments</a></li><li><a href="#adapter">پیاده‌سازی نمونه (زرین‌پال)</a></li><li><a href="#controller">کنترلر: شروع پرداخت و بازگشت امن</a></li><li><a href="#test">تست بدون درگاه واقعی</a></li><li><a href="#checklist">چک‌لیست قبل از پرداخت واقعی</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="flow"><div class="lesson-head"><span class="lesson-num">۱</span><h2>جریان پرداخت اینترنتی</h2></div><p>درگاه‌های ایرانی (زرین‌پال، IDPay، بانک‌ها و ...) همه تقریباً یک الگو دارند:</p><ol><li><b>درخواست پرداخت:</b> سرور تو مبلغ و آدرس بازگشت (callback) را به درگاه می‌فرستد و یک شناسه‌ی پرداخت (Authority/Token) می‌گیرد.</li><li><b>هدایت کاربر:</b> کاربر را به صفحه‌ی درگاه می‌بری و پرداخت را آنجا انجام می‌دهد.</li><li><b>بازگشت:</b> درگاه کاربر را به callback تو برمی‌گرداند (با وضعیت <code>OK</code> یا <code>NOK</code>).</li><li><b>تایید (Verify):</b> سرور تو دوباره از خود درگاه می‌پرسد «واقعاً پرداخت شد؟» و فقط بعد از تایید، سفارش را پرداخت‌شده می‌کند.</li></ol><div class="note warn"><div class="note-title">قانون طلایی</div><p><b>هرگز فقط به پارامتر بازگشت (Status=OK) اعتماد نکن.</b> هر کسی می‌تواند آدرس callback را دستی با <code>Status=OK</code> باز کند. تنها «Verify» سرور به سرور معتبر است و مبلغ را باید از دیتابیس خودت بخوانی، نه از ورودی کاربر.</p></div></section><section class="lesson" id="design"><div class="lesson-head"><span class="lesson-num">۲</span><h2>طراحی تمیز: Interface + جدول payments</h2></div><p>جزئیات هر درگاه (آدرس‌ها، نام فیلدها، واحد مبلغ) را فقط در یک کلاس «Adapter» نگه می‌داریم. بقیه‌ی برنامه فقط با <code>PaymentGateway</code> کار می‌کند؛ اگر درگاه را عوض کنی فقط همان کلاس عوض می‌شود.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('payments', function (Blueprint $table) {
+            $table-&gt;id();
+            $table-&gt;foreignId('order_id')-&gt;constrained()-&gt;cascadeOnDelete();
+            $table-&gt;unsignedBigInteger('amount');                 // تومان (واحد داخلی پروژه)
+            $table-&gt;string('gateway', 30);
+            $table-&gt;string('authority')-&gt;nullable()-&gt;unique();    // شناسه‌ی درگاه
+            $table-&gt;string('ref_id')-&gt;nullable();                 // شماره‌ی پیگیری بعد از موفقیت
+            $table-&gt;string('status', 20)-&gt;default('pending');    // pending | paid | failed
+            $table-&gt;json('raw')-&gt;nullable();                      // پاسخ خام درگاه برای عیب‌یابی
+            $table-&gt;timestamp('paid_at')-&gt;nullable();
+            $table-&gt;timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('payments');
+    }
+};</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Services\Payment;
+
+use App\Models\Payment;
+
+interface PaymentGateway
+{
+    /** پرداخت را در درگاه ثبت می‌کند و آدرس صفحه‌ی پرداخت را برمی‌گرداند */
+    public function request(Payment $payment, string $callbackUrl): string;
+
+    /** اگر پرداخت واقعاً موفق بود شماره‌ی پیگیری، وگرنه null */
+    public function verify(Payment $payment): ?string;
+}</code></pre></div></div></section><section class="lesson" id="adapter"><div class="lesson-head"><span class="lesson-num">۳</span><h2>پیاده‌سازی نمونه (زرین‌پال)</h2></div><div class="note warn"><div class="note-title">قبل از استفاده</div><p>آدرس‌ها، نام فیلدها و <b>واحد مبلغ (ریال یا تومان)</b> در کد زیر را حتماً با مستندات رسمی نسخه‌ی فعلی درگاه خودت تطبیق بده؛ درگاه‌ها گاهی تغییر می‌کنند. ساختار و الگوی ایمنی مهم‌تر از جزئیات یک درگاه است. همچنین بعضی درگاه‌ها درخواست از سرور خارج ایران را نمی‌پذیرند؛ هنگام انتخاب هاست این را بپرس.</p></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Services\Payment;
+
+use App\Models\Payment;
+use Illuminate\Support\Facades\Http;
+use RuntimeException;
+
+class ZarinpalGateway implements PaymentGateway
+{
+    private const BASE = 'https://payment.zarinpal.com/pg/v4/payment';
+
+    public function request(Payment $payment, string $callbackUrl): string
+    {
+        $response = Http::timeout(15)-&gt;retry(2, 300)-&gt;acceptJson()-&gt;post(self::BASE.'/request.json', [
+            'merchant_id'  =&gt; config('services.zarinpal.merchant_id'),
+            'amount'       =&gt; $this-&gt;amount($payment),
+            'callback_url' =&gt; $callbackUrl,
+            'description'  =&gt; 'سفارش شماره‌ی '.$payment-&gt;order_id,
+        ]);
+
+        $data = $response-&gt;json('data');
+
+        if (($data['code'] ?? null) !== 100 || empty($data['authority'])) {
+            throw new RuntimeException('Gateway request failed: '.$response-&gt;body());
+        }
+
+        $payment-&gt;update(['authority' =&gt; $data['authority'], 'raw' =&gt; $response-&gt;json()]);
+
+        return 'https://payment.zarinpal.com/pg/StartPay/'.$data['authority'];
+    }
+
+    public function verify(Payment $payment): ?string
+    {
+        $response = Http::timeout(15)-&gt;retry(2, 300)-&gt;acceptJson()-&gt;post(self::BASE.'/verify.json', [
+            'merchant_id' =&gt; config('services.zarinpal.merchant_id'),
+            'amount'      =&gt; $this-&gt;amount($payment),       // از دیتابیس خودمان، نه از کاربر
+            'authority'   =&gt; $payment-&gt;authority,
+        ]);
+
+        $code = $response-&gt;json('data.code');
+
+        // ۱۰۰: موفق  ·  ۱۰۱: قبلاً تایید شده
+        if (in_array($code, [100, 101], true)) {
+            return (string) $response-&gt;json('data.ref_id');
+        }
+
+        return null;
+    }
+
+    private function amount(Payment $payment): int
+    {
+        // واحد داخلی ما تومان است؛ اگر درگاه ریال می‌خواهد ضرب در ۱۰ (طبق مستندات)
+        return $payment-&gt;amount * (int) config('services.zarinpal.multiplier', 10);
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+// config/services.php
+return [
+    // ...
+    'zarinpal' =&gt; [
+        'merchant_id' =&gt; env('ZARINPAL_MERCHANT_ID'),
+        'multiplier'  =&gt; env('ZARINPAL_AMOUNT_MULTIPLIER', 10),
+    ],
+];</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Providers;
+
+use App\Services\Payment\PaymentGateway;
+use App\Services\Payment\ZarinpalGateway;
+use Illuminate\Support\ServiceProvider;
+
+class AppServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        $this-&gt;app-&gt;bind(PaymentGateway::class, ZarinpalGateway::class);
+    }
+}</code></pre></div></div></section><section class="lesson" id="controller"><div class="lesson-head"><span class="lesson-num">۴</span><h2>کنترلر: شروع پرداخت و بازگشت امن</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Http\Controllers;
+
+use App\Events\OrderPaid;
+use App\Models\Order;
+use App\Models\Payment;
+use App\Services\Payment\PaymentGateway;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Throwable;
+
+class PaymentController extends Controller
+{
+    public function __construct(private PaymentGateway $gateway) {}
+
+    public function start(Request $request, Order $order): RedirectResponse
+    {
+        abort_unless($order-&gt;user_id === $request-&gt;user()-&gt;id, 403);
+        abort_unless($order-&gt;status === 'pending', 422, 'این سفارش قابل پرداخت نیست.');
+
+        // مبلغ همیشه از خود سفارش در دیتابیس می‌آید
+        $payment = $order-&gt;payments()-&gt;create([
+            'amount'  =&gt; $order-&gt;total,
+            'gateway' =&gt; 'zarinpal',
+        ]);
+
+        try {
+            $url = $this-&gt;gateway-&gt;request($payment, route('payment.callback', $payment));
+        } catch (Throwable $e) {
+            report($e);
+            $payment-&gt;update(['status' =&gt; 'failed']);
+
+            return back()-&gt;with('error', 'اتصال به درگاه برقرار نشد؛ کمی بعد دوباره تلاش کن.');
+        }
+
+        return redirect()-&gt;away($url);
+    }
+
+    public function callback(Request $request, Payment $payment): RedirectResponse
+    {
+        $order = $payment-&gt;order;
+
+        // تکراری‌بودن: اگر قبلاً پرداخت شده، فقط نتیجه را نشان بده
+        if ($payment-&gt;status === 'paid') {
+            return redirect()-&gt;route('orders.show', $order)-&gt;with('success', 'پرداخت قبلاً ثبت شده است.');
+        }
+
+        // شناسه‌ی بازگشتی باید دقیقاً همان باشد که ما ثبت کرده بودیم
+        $authority = (string) $request-&gt;query('Authority');
+        if ($request-&gt;query('Status') !== 'OK' || ! hash_equals((string) $payment-&gt;authority, $authority)) {
+            $payment-&gt;update(['status' =&gt; 'failed']);
+
+            return redirect()-&gt;route('orders.show', $order)-&gt;with('error', 'پرداخت انجام نشد یا لغو شد.');
+        }
+
+        $ref = $this-&gt;gateway-&gt;verify($payment);
+
+        if (! $ref) {
+            $payment-&gt;update(['status' =&gt; 'failed']);
+
+            return redirect()-&gt;route('orders.show', $order)-&gt;with('error', 'تایید پرداخت ناموفق بود.');
+        }
+
+        $paidNow = DB::transaction(function () use ($payment, $order, $ref) {
+            $locked = Payment::whereKey($payment-&gt;id)-&gt;lockForUpdate()-&gt;first();
+
+            if ($locked-&gt;status === 'paid') {
+                return false;                    // درخواست هم‌زمان دیگری انجامش داده
+            }
+
+            $locked-&gt;update(['status' =&gt; 'paid', 'ref_id' =&gt; $ref, 'paid_at' =&gt; now()]);
+            $order-&gt;update(['status' =&gt; 'paid']);
+
+            return true;
+        });
+
+        if ($paidNow) {
+            OrderPaid::dispatch($order);        // ایمیل، پیامک، کم‌کردن موجودی ... (درس Event)
+        }
+
+        return redirect()-&gt;route('orders.show', $order)
+            -&gt;with('success', 'پرداخت موفق بود. شماره‌ی پیگیری: '.$ref);
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+// routes/web.php
+use App\Http\Controllers\PaymentController;
+use Illuminate\Support\Facades\Route;
+
+Route::middleware('auth')-&gt;post('/orders/{order}/pay', [PaymentController::class, 'start'])-&gt;name('payment.start');
+
+// بازگشت از درگاه: کاربر از بیرون می‌آید؛ به همین دلیل GET است و خودش را با Authority می‌شناسیم
+Route::get('/payment/callback/{payment}', [PaymentController::class, 'callback'])-&gt;name('payment.callback');</code></pre></div></div><div class="note info"><div class="note-title">اگر درگاه با POST برمی‌گرداند</div><p>درگاه‌هایی که callback را با POST می‌فرستند، توکن CSRF ندارند؛ آدرس را در <code>bootstrap/app.php</code> با <code>$middleware->validateCsrfTokens(except: ['payment/callback/*'])</code> مستثنی کن (و همچنان با Verify امنش کن).</p></div></section><section class="lesson" id="test"><div class="lesson-head"><span class="lesson-num">۵</span><h2>تست بدون درگاه واقعی</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Tests\Feature;
+
+use App\Events\OrderPaid;
+use App\Models\Order;
+use App\Models\Payment;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
+use Tests\TestCase;
+
+class PaymentTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_successful_callback_marks_order_paid_once(): void
+    {
+        Event::fake([OrderPaid::class]);
+        Http::fake([
+            'payment.zarinpal.com/pg/v4/payment/verify.json' =&gt;
+                Http::response(['data' =&gt; ['code' =&gt; 100, 'ref_id' =&gt; 123456]]),
+        ]);
+
+        $user = User::factory()-&gt;create();
+        $order = Order::factory()-&gt;create(['user_id' =&gt; $user-&gt;id, 'status' =&gt; 'pending', 'total' =&gt; 100000]);
+        $payment = Payment::create([
+            'order_id'  =&gt; $order-&gt;id,
+            'amount'    =&gt; 100000,
+            'gateway'   =&gt; 'zarinpal',
+            'authority' =&gt; 'A0001',
+        ]);
+
+        $url = route('payment.callback', $payment).'?Authority=A0001&amp;Status=OK';
+
+        $this-&gt;actingAs($user)-&gt;get($url)-&gt;assertRedirect();
+        $this-&gt;assertSame('paid', $order-&gt;fresh()-&gt;status);
+
+        // بازگشت دوباره (رفرش) نباید دوباره Event بفرستد
+        $this-&gt;actingAs($user)-&gt;get($url);
+        Event::assertDispatchedTimes(OrderPaid::class, 1);
+    }
+
+    public function test_wrong_authority_is_rejected(): void
+    {
+        Http::fake();
+
+        $order = Order::factory()-&gt;create(['status' =&gt; 'pending']);
+        $payment = Payment::create(['order_id' =&gt; $order-&gt;id, 'amount' =&gt; 1000, 'gateway' =&gt; 'zarinpal', 'authority' =&gt; 'REAL']);
+
+        $this-&gt;get(route('payment.callback', $payment).'?Authority=FAKE&amp;Status=OK');
+
+        $this-&gt;assertSame('pending', $order-&gt;fresh()-&gt;status);
+        Http::assertNothingSent();
+    }
+}</code></pre></div></div></section><section class="lesson" id="checklist"><div class="lesson-head"><span class="lesson-num">۶</span><h2>چک‌لیست قبل از پرداخت واقعی</h2></div><ul><li>مبلغ همیشه از دیتابیس، هرگز از فرم/URL.</li><li>Verify سرور به سرور و تطبیق Authority؛ نتیجه‌ی بازگشت را باور نکن.</li><li>عملیات «پرداخت‌شده» داخل تراکنش و با قفل (جلوی رفرش و درخواست هم‌زمان).</li><li>جدول <code>payments</code> با پاسخ خام درگاه برای رسیدگی به اختلاف‌ها.</li><li>کلید/مرچنت‌کد فقط در <code>.env</code>.</li><li>تست با حالت آزمایشی (Sandbox) درگاه و بعد یک پرداخت کوچک واقعی.</li><li>صفحه‌ی «پرداخت ناموفق» با پیام روشن و راه پیگیری برای کاربر.</li><li>پرداخت‌های pending قدیمی را با Scheduler پاک/لغو کن (درس قبل).</li><li>قوانین فروش، مالیات و بازگشت وجه را مطابق قانون و شرایط درگاه روی سایت بنویس.</li></ul></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۷</span><h2>اشتباه‌های رایج</h2></div><ol><li>اعتماد به <code>Status=OK</code> بدون Verify.</li><li>گرفتن مبلغ از ورودی کاربر.</li><li>نداشتن جلوگیری از پرداخت دوباره‌ی یک سفارش و ثبت چندباره (idempotency).</li><li>اشتباه در واحد مبلغ (ریال/تومان) و دریافت ۱۰ برابر یا یک‌دهم.</li><li>نگه‌نداشتن لاگ و شماره‌ی پیگیری.</li><li>تست مستقیم روی درگاه واقعی به‌جای <code>Http::fake</code>.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>مایگریشن و مدل Payment را بساز، رابطه‌ی <code>payments()</code> را به Order اضافه کن.</li><li><code>FakeGateway</code> بنویس که همیشه موفق شود و در محیط local به‌جای درگاه واقعی bind کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li>صفحه‌ی «سفارش‌های من» را با دکمه‌ی «پرداخت» برای سفارش‌های pending بساز.</li><li>صفحه‌ی نتیجه‌ی پرداخت با پیام موفق/ناموفق و شماره‌ی پیگیری طراحی کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>Scheduler: پرداخت‌های pending بیش از یک ساعت را failed کن.</li><li>تست بنویس که کاربر دیگر نتواند سفارش شخص دیگری را پرداخت کند (۴۰۳).</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://laravel.com/docs/13.x/http-client" target="_blank" rel="noopener">HTTP Client</a> — <a href="https://laravel.com/docs/13.x/database#database-transactions" target="_blank" rel="noopener">Database Transactions</a> — <a href="https://docs.zarinpal.com/" target="_blank" rel="noopener">مستندات رسمی درگاه پرداخت خودت</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="l2-persian-rtl.html">→ بخش قبل: فارسی‌سازی: RTL و تاریخ شمسی</a><a href="project-news.html">بعدی: پروژه‌ی دوم: سایت خبری ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

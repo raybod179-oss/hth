@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۰ · درس ۴ | مبانی PHP ۲: آرایه و تابع</title><meta name="description" content="آرایه‌های اندیس‌دار و انجمنی، foreach، array_map/filter/reduce، توابع با type hint و یک سبد خرید کامل؛ پایه‌ی کار با Collection در لاراول.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۰ · درس ۴</span><h1>مبانی PHP ۲: آرایه و تابع</h1><p>آرایه و تابع دو ستون اصلی هر برنامه‌ی PHP هستند. در این درس از ساده شروع می‌کنیم و می‌رسیم به شیوه‌ای که لاراول واقعاً کد می‌نویسد.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#arr">آرایه چیست؟</a></li><li><a href="#foreach">پیمایش با foreach</a></li><li><a href="#funcs-arr">توابع پرکاربرد آرایه</a></li><li><a href="#map">map، filter و reduce</a></li><li><a href="#functions">تابع: کد قابل‌استفاده‌ی مجدد</a></li><li><a href="#spread">نکته‌های مدرن PHP: spread، destructuring و include</a></li><li><a href="#project">گام پروژه: سبد خرید ساده</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="arr"><div class="lesson-head"><span class="lesson-num">۱</span><h2>آرایه چیست؟</h2></div><p>آرایه یک متغیر است که چند مقدار را کنار هم نگه می‌دارد. در لاراول همه‌جا آرایه می‌بینی: داده‌ی فرم، نتیجه‌ی دیتابیس، تنظیمات. دو نوع اصلی داریم: <b>اندیس‌دار</b> (کلیدها عدد از صفر) و <b>انجمنی</b> (کلیدها نام).</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+// اندیس‌دار
+$fruits = ["سیب", "موز", "پرتقال"];
+echo $fruits[0], "\n";        // سیب
+$fruits[] = "انار";          // اضافه به انتها
+echo count($fruits), "\n";   // 4
+
+// انجمنی (کلید =&gt; مقدار)
+$user = [
+    "name"  =&gt; "سارا",
+    "age"   =&gt; 27,
+    "email" =&gt; "sara@example.com",
+];
+echo $user["name"], "\n";
+$user["city"] = "تهران";
+unset($user["age"]);          // حذف یک کلید
+
+// چندبعدی: آرایه‌ای از آرایه‌ها (شبیه ردیف‌های یک جدول)
+$products = [
+    ["id" =&gt; 1, "title" =&gt; "کیبورد", "price" =&gt; 850000],
+    ["id" =&gt; 2, "title" =&gt; "ماوس",   "price" =&gt; 420000],
+];
+echo $products[1]["title"];   // ماوس</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>سیب
+4
+سارا
+ماوس</code></pre></div></div><div class="note tip"><div class="note-title">ارتباط با لاراول</div><p>هر ردیف دیتابیس که از Eloquent بگیری شبیه همین <code>$products</code> است (فقط شیء است نه آرایه‌ی ساده). اگر این ساختار را خوب بفهمی، <code>Collection</code>های لاراول برایت آسان می‌شود.</p></div></section><section class="lesson" id="foreach"><div class="lesson-head"><span class="lesson-num">۲</span><h2>پیمایش با foreach</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+$prices = ["کیبورد" =&gt; 850000, "ماوس" =&gt; 420000, "هدفون" =&gt; 1200000];
+
+foreach ($prices as $title =&gt; $price) {
+    echo "$title: " . number_format($price) . " تومان\n";
+}
+
+$total = 0;
+foreach ($prices as $price) {
+    $total += $price;
+}
+echo "جمع: " . number_format($total);</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>کیبورد: 850,000 تومان
+ماوس: 420,000 تومان
+هدفون: 1,200,000 تومان
+جمع: 2,470,000</code></pre></div></div></section><section class="lesson" id="funcs-arr"><div class="lesson-head"><span class="lesson-num">۳</span><h2>توابع پرکاربرد آرایه</h2></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>تابع</th><th>کار</th><th>مثال</th></tr></thead><tbody><tr><td><code>count($a)</code></td><td>تعداد عضوها</td><td><code>count([1,2,3])</code> ← ۳</td></tr><tr><td><code>in_array($v,$a)</code></td><td>وجود مقدار</td><td><code>in_array(2,[1,2])</code> ← true</td></tr><tr><td><code>array_key_exists($k,$a)</code></td><td>وجود کلید</td><td>—</td></tr><tr><td><code>array_keys / array_values</code></td><td>فقط کلیدها / مقدارها</td><td>—</td></tr><tr><td><code>array_merge($a,$b)</code></td><td>ادغام دو آرایه</td><td>—</td></tr><tr><td><code>array_slice($a,0,2)</code></td><td>برش</td><td>دو عضو اول</td></tr><tr><td><code>sort / rsort / usort</code></td><td>مرتب‌سازی</td><td>usort با تابع دلخواه</td></tr><tr><td><code>implode / explode</code></td><td>آرایه ⇄ متن</td><td><code>implode("، ", $a)</code></td></tr></tbody></table></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+$nums = [5, 3, 9, 1];
+sort($nums);
+echo implode(", ", $nums), "\n";          // 1, 3, 5, 9
+
+$tags = explode(",", "php,laravel,mysql");
+print_r($tags);
+
+$people = [
+    ["name" =&gt; "علی",  "age" =&gt; 30],
+    ["name" =&gt; "سارا", "age" =&gt; 22],
+];
+usort($people, fn($a, $b) =&gt; $a["age"] &lt;=&gt; $b["age"]);
+echo $people[0]["name"];                       // سارا</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>1, 3, 5, 9
+Array
+(
+    [0] =&gt; php
+    [1] =&gt; laravel
+    [2] =&gt; mysql
+)
+سارا</code></pre></div></div></section><section class="lesson" id="map"><div class="lesson-head"><span class="lesson-num">۴</span><h2>map، filter و reduce</h2></div><p>این سه تابع به‌جای حلقه، «تبدیل» داده را بیان می‌کنند و در لاراول (روی Collection) هر روز استفاده می‌شوند. <code>fn</code> یک تابع کوتاه (arrow function) است.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+$prices = [100, 250, 400, 50];
+
+// map: روی هر عضو یک تبدیل
+$withTax = array_map(fn($p) =&gt; $p * 1.1, $prices);
+
+// filter: نگه‌داشتن اعضایی که شرط را دارند
+$expensive = array_filter($prices, fn($p) =&gt; $p &gt;= 200);
+
+// reduce: جمع کردن همه به یک مقدار
+$sum = array_reduce($prices, fn($carry, $p) =&gt; $carry + $p, 0);
+
+echo implode(" ", $withTax), "\n";
+echo implode(" ", $expensive), "\n";
+echo $sum;</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>110 275 440 55
+250 400
+800</code></pre></div></div><div class="note info"><div class="note-title">ترتیب کلیدها</div><p><code>array_filter</code> کلیدهای اصلی را نگه می‌دارد (اندیس‌ها ۱ و ۲ می‌مانند). اگر اندیس تازه می‌خواهی: <code>array_values(...)</code>.</p></div></section><section class="lesson" id="functions"><div class="lesson-head"><span class="lesson-num">۵</span><h2>تابع: کد قابل‌استفاده‌ی مجدد</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+declare(strict_types=1);
+
+// پارامتر، مقدار پیش‌فرض، نوع و خروجی
+function priceWithTax(float $price, float $rate = 0.09): float
+{
+    return $price * (1 + $rate);
+}
+
+echo priceWithTax(1000), "\n";                 // 1090
+echo priceWithTax(1000, 0.2), "\n";            // 1200
+echo priceWithTax(rate: 0.1, price: 500), "\n"; // 550 (آرگومان نام‌دار)
+
+// خروجی nullable
+function findUser(array $users, int $id): ?array
+{
+    foreach ($users as $u) {
+        if ($u["id"] === $id) return $u;
+    }
+    return null;
+}
+
+$users = [["id" =&gt; 1, "name" =&gt; "علی"]];
+var_dump(findUser($users, 2));   // NULL</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>1090
+1200
+550
+NULL</code></pre></div></div><div class="note tip"><div class="note-title">type hint</div><p>نوشتن نوع پارامتر و خروجی (<code>float</code>، <code>?array</code>) خطاها را زود نشان می‌دهد و ادیتور را باهوش‌تر می‌کند. تمام کد لاراول از همین سبک استفاده می‌کند.</p></div><div class="note warn"><div class="note-title">Scope</div><p>متغیرهای بیرونِ تابع داخلش دیده نمی‌شوند. هر چیزی که لازم است را با پارامتر بده و با <code>return</code> بگیر؛ از <code>global</code> دوری کن.</p></div></section><section class="lesson" id="spread"><div class="lesson-head"><span class="lesson-num">۶</span><h2>نکته‌های مدرن PHP: spread، destructuring و include</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+// spread
+$a = [1, 2]; $b = [3, 4];
+$all = [...$a, ...$b];             // [1,2,3,4]
+
+function sum(int ...$nums): int { return array_sum($nums); }
+echo sum(1, 2, 3, 4), "\n";         // 10
+
+// destructuring
+[$first, $second] = ["اول", "دوم"];
+["name" =&gt; $n, "age" =&gt; $ag] = ["name" =&gt; "علی", "age" =&gt; 30];
+echo "$first $n $ag\n";
+
+// null-safe و ??
+$config = ["db" =&gt; ["host" =&gt; "localhost"]];
+echo $config["db"]["port"] ?? 3306;   // 3306</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>10
+اول علی 30
+3306</code></pre></div></div><p>برای تقسیم کد به چند فایل از <code>require_once "helpers.php";</code> استفاده می‌شود. در لاراول این کار را Composer و autoload انجام می‌دهد و تو تقریباً هیچ‌وقت <code>require</code> دستی نمی‌نویسی (در درس Composer می‌بینی).</p></section><section class="lesson" id="project"><div class="lesson-head"><span class="lesson-num">۷</span><h2>گام پروژه: سبد خرید ساده</h2></div><p>فایل <code>cart.php</code> بساز. هدف: جمع سبد با تخفیف.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+declare(strict_types=1);
+
+$cart = [
+    ["title" =&gt; "کیبورد", "price" =&gt; 850000, "qty" =&gt; 1],
+    ["title" =&gt; "ماوس",   "price" =&gt; 420000, "qty" =&gt; 2],
+    ["title" =&gt; "پد موس", "price" =&gt; 90000,  "qty" =&gt; 1],
+];
+
+function subtotal(array $cart): int
+{
+    return array_sum(array_map(fn($i) =&gt; $i["price"] * $i["qty"], $cart));
+}
+
+function discount(int $total): int
+{
+    return match (true) {
+        $total &gt;= 2000000 =&gt; (int) ($total * 0.15),
+        $total &gt;= 1000000 =&gt; (int) ($total * 0.10),
+        default           =&gt; 0,
+    };
+}
+
+$sub = subtotal($cart);
+$off = discount($sub);
+
+foreach ($cart as $item) {
+    echo $item["title"] . " × " . $item["qty"] . " = " . number_format($item["price"] * $item["qty"]) . "\n";
+}
+echo "جمع: " . number_format($sub) . "\n";
+echo "تخفیف: " . number_format($off) . "\n";
+echo "قابل پرداخت: " . number_format($sub - $off) . "\n";</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>کیبورد × 1 = 850,000
+ماوس × 2 = 840,000
+پد موس × 1 = 90,000
+جمع: 1,780,000
+تخفیف: 178,000
+قابل پرداخت: 1,602,000</code></pre></div></div></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۸</span><h2>اشتباه‌های رایج</h2></div><ol><li>دسترسی به کلید ناموجود (<code>Undefined array key</code>)؛ با <code>??</code> مقدار پیش‌فرض بده یا اول <code>isset()</code> بزن.</li><li>فراموش کردن <code>return</code> در تابع و دریافت <code>null</code>.</li><li>تغییر آرایه داخل <code>foreach</code> و تعجب از اینکه اصلی عوض نمی‌شود (پیش‌فرض کپی است).</li><li>استفاده از <code>==</code> برای مقایسه‌ی آرایه‌ها؛ <code>===</code> ترتیب و نوع را هم می‌سنجد.</li><li>نوشتن حلقه‌ی دستی برای کاری که <code>array_map</code>/<code>array_filter</code> کوتاه‌تر و خواناتر انجام می‌دهد.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱: آرایه</div><ol><li>آرایه‌ای از ۵ نمره بساز و میانگین، بیشترین و کمترین را چاپ کن (<code>max</code>، <code>min</code>، <code>array_sum</code>).</li><li>فقط نمره‌های قبولی (۱۰ به بالا) را با <code>array_filter</code> جدا کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲: تابع</div><ol><li>تابع <code>isEven(int $n): bool</code> بنویس و با <code>array_filter</code> اعداد زوج ۱ تا ۲۰ را بگیر.</li><li>تابع <code>slugify(string $title): string</code> بنویس که فاصله‌ها را با <code>-</code> عوض کند و حروف انگلیسی را کوچک کند.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳: ارتقای سبد</div><ol><li>هزینه‌ی ارسال ثابت ۵۰,۰۰۰ تومان اضافه کن که اگر جمع بالای ۲,۰۰۰,۰۰۰ بود صفر شود.</li><li>آرایه را با <code>usort</code> بر اساس قیمت نزولی مرتب و چاپ کن.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://www.php.net/manual/en/language.types.array.php" target="_blank" rel="noopener">Arrays in PHP</a> — <a href="https://www.php.net/manual/en/ref.array.php" target="_blank" rel="noopener">Array functions</a> — <a href="https://www.php.net/manual/en/language.functions.php" target="_blank" rel="noopener">Functions</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="php-1-basics.html">→ بخش قبل: مبانی PHP ۱: متغیر، شرط و حلقه</a><a href="php-3-oop.html">بعدی: مبانی PHP ۳: شی‌گرایی (OOP) ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

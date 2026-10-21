@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۳ · درس 9 | امنیت پیشرفته</title><meta name="description" content="امنیت لاراول: XSS، CSRF، SQL Injection، Mass Assignment، آپلود امن، Signed URL، Rate Limit، رمز، هدرهای امنیتی، رمزنگاری، چک‌لیست انتشار و تست‌های امنیتی.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۳ · درس 9</span><h1>امنیت پیشرفته</h1><p>سایتی که پول و داده‌ی کاربر را نگه می‌دارد باید امن باشد. این درس رایج‌ترین حفره‌ها را با کد واقعی، تست و چک‌لیست قبل از انتشار می‌بندد.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#mindset">طرز فکر امنیت</a></li><li><a href="#xss">XSS و CSRF</a></li><li><a href="#sqli">SQL Injection و Mass Assignment</a></li><li><a href="#upload">آپلود فایل امن</a></li><li><a href="#auth">ورود، رمز و نشست</a></li><li><a href="#headers">هدرهای امنیتی و HTTPS</a></li><li><a href="#secrets">اسرار، وابستگی‌ها و سرور</a></li><li><a href="#checklist">چک‌لیست قبل از انتشار</a></li><li><a href="#test">تست امنیتی نمونه</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="mindset"><div class="lesson-head"><span class="lesson-num">۱</span><h2>طرز فکر امنیت</h2></div><p>امنیت یک ویژگی آخرِ کار نیست؛ عادت است. دو اصل: <b>هیچ ورودی قابل اعتماد نیست</b> (فرم، URL، کوکی، هدر، فایل، حتی پاسخ سرویس‌های بیرونی) و <b>حداقل دسترسی</b> (هر کاربر و هر کلید فقط همان‌قدر که لازم است). فهرست OWASP Top 10 نقشه‌ی خوبی از رایج‌ترین حفره‌هاست؛ این درس آن‌ها را به لاراول وصل می‌کند.</p></section><section class="lesson" id="xss"><div class="lesson-head"><span class="lesson-num">۲</span><h2>XSS و CSRF</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">html</span></div><pre><code>{{ $comment-&gt;body }}          {{-- ✅ خودکار escape می‌شود --}}
+{!! $comment-&gt;body !!}        {{-- ❌ خطرناک: HTML/JS کاربر اجرا می‌شود --}}
+
+&lt;form method="POST" action="/orders"&gt;
+    @csrf                      {{-- ✅ توکن CSRF؛ بدونش ۴۱۹ می‌گیری --}}
+    ...
+&lt;/form&gt;</code></pre></div></div><ul><li><b>XSS:</b> وقتی متن کاربر به‌صورت HTML اجرا شود، مهاجم می‌تواند کوکی و نشست دیگران را بدزدد. همیشه از <code>{{ }}</code> استفاده کن. اگر واقعاً HTML لازم است (ویرایشگر مقاله)، آن را با یک کتابخانه‌ی «پاک‌سازی HTML» (مثل <code>mews/purifier</code>) تمیز کن، نه با <code>strip_tags</code> دستی.</li><li><b>CSRF:</b> سایت مخرب کاربر ورودکرده‌ی تو را وادار به ارسال فرم ناخواسته کند. لاراول با <code>@csrf</code> جلویش را می‌گیرد؛ توکن را در فرم‌های POST/PUT/DELETE فراموش نکن. مسیرهایی که CSRF را معاف می‌کنی (مثل Callback درگاه) حتماً باید راه تأیید دیگری داشته باشند.</li></ul></section><section class="lesson" id="sqli"><div class="lesson-head"><span class="lesson-num">۳</span><h2>SQL Injection و Mass Assignment</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+use App\Models\Product;
+use Illuminate\Support\Facades\DB;
+
+$term = request('q');
+
+// ✅ امن: Eloquent و Query Builder از پارامتر bind استفاده می‌کنند
+Product::where('title', 'like', "%{$term}%")-&gt;get();
+
+// ✅ SQL خام فقط با bind
+DB::select('SELECT * FROM products WHERE price &gt; ?', [$minPrice]);
+Product::whereRaw('stock &gt; ? AND price &lt; ?', [5, 100000])-&gt;get();
+
+// ❌ خطرناک: چسباندن ورودی به SQL
+DB::select("SELECT * FROM products WHERE title = '$term'");
+
+// ❌ orderBy با ستون از ورودی کاربر: حتماً لیست مجاز بساز
+$allowed = ['price', 'created_at', 'title'];
+$column = in_array(request('sort'), $allowed, true) ? request('sort') : 'created_at';
+Product::orderBy($column)-&gt;get();</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class User extends Model
+{
+    // ✅ فقط فیلدهای مجاز با create()/update() پر شوند
+    protected $fillable = ['name', 'email', 'phone'];
+
+    // ❌ اگر role در $fillable بود، کاربر با ارسال role=admin ادمین می‌شد!
+}</code></pre></div></div><div class="note warn"><div class="note-title">validated()</div><p>همیشه <code>$request->validated()</code> یا <code>$request->only([...])</code> را به <code>create/update</code> بده؛ <code>$request->all()</code> هرگز.</p></div></section><section class="lesson" id="upload"><div class="lesson-head"><span class="lesson-num">۴</span><h2>آپلود فایل امن</h2></div><p>فایل آپلودی خطرناک‌ترین ورودی است: ممکن است اسکریپت PHP با پسوند جعلی باشد یا فضای دیسک را پر کند.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Str;
+
+class AvatarController extends Controller
+{
+    public function store(Request $request)
+    {
+        $request-&gt;validate([
+            // نوع واقعی فایل (نه فقط پسوند)، حداکثر ۲ مگابایت
+            'avatar' =&gt; ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+        ]);
+
+        // نام تصادفی؛ هرگز نام اصلی کاربر را استفاده نکن
+        $name = Str::uuid().'.'.$request-&gt;file('avatar')-&gt;extension();
+
+        $path = $request-&gt;file('avatar')-&gt;storeAs('avatars', $name, 'public');
+
+        $request-&gt;user()-&gt;update(['avatar' =&gt; $path]);
+
+        return back();
+    }
+}</code></pre></div></div><ul><li>فایل‌های خصوصی (فاکتور، مدارک) را روی دیسک <code>local</code> (خارج از <code>public</code>) بگذار و از طریق کنترلر با بررسی مجوز یا <b>Signed URL</b> تحویل بده.</li><li>اجرای PHP را در پوشه‌ی آپلود غیرفعال کن (تنظیم وب‌سرور).</li><li>برای تصاویر، ابعاد و حجم را محدود کن و در صورت امکان بازپردازش (Resize) کن که محتوای مخرب پنهان حذف شود.</li></ul><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\URL;
+
+// لینک دانلود موقت و امضاشده (۳۰ دقیقه)
+$url = URL::temporarySignedRoute('invoices.download', now()-&gt;addMinutes(30), ['invoice' =&gt; $invoice-&gt;id]);
+
+Route::get('/invoices/{invoice}/download', [InvoiceController::class, 'download'])
+    -&gt;name('invoices.download')
+    -&gt;middleware('signed');</code></pre></div></div></section><section class="lesson" id="auth"><div class="lesson-head"><span class="lesson-num">۵</span><h2>ورود، رمز و نشست</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Providers;
+
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\Rules\Password;
+
+class AppServiceProvider extends ServiceProvider
+{
+    public function boot(): void
+    {
+        // ۵ تلاش ورود در دقیقه برای هر ترکیب ایمیل+IP
+        RateLimiter::for('login', function (Request $request) {
+            return Limit::perMinute(5)-&gt;by($request-&gt;input('email').'|'.$request-&gt;ip());
+        });
+
+        // قانون پیش‌فرض رمز
+        Password::defaults(fn () =&gt; Password::min(8)-&gt;letters()-&gt;numbers()-&gt;uncompromised());
+    }
+}
+
+// روت:  Route::post('/login', ...)-&gt;middleware('throttle:login');
+// قانون رمز:  'password' =&gt; ['required', Password::defaults(), 'confirmed']</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">text</span></div><pre><code># .env پروداکشن
+APP_ENV=production
+APP_DEBUG=false
+SESSION_SECURE_COOKIE=true
+SESSION_HTTP_ONLY=true
+SESSION_SAME_SITE=lax</code></pre></div></div><ul><li>بعد از ورود موفق <code>session()->regenerate()</code> (Breeze/Fortify خودشان می‌زنند) تا Session Fixation رخ ندهد.</li><li>رمز را فقط با <code>Hash::make</code> ذخیره کن (cast <code>hashed</code>)؛ هرگز رمز را لاگ یا ایمیل نکن.</li><li>برای ادمین‌ها احراز هویت دومرحله‌ای (2FA) فعال کن (Fortify یا Starter Kit).</li><li>پیام خطای ورود یکسان باشد (نگوییم «ایمیل وجود ندارد»).</li></ul></section><section class="lesson" id="headers"><div class="lesson-head"><span class="lesson-num">۶</span><h2>هدرهای امنیتی و HTTPS</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+class SecurityHeaders
+{
+    public function handle(Request $request, Closure $next): Response
+    {
+        $response = $next($request);
+
+        $response-&gt;headers-&gt;set('X-Content-Type-Options', 'nosniff');
+        $response-&gt;headers-&gt;set('X-Frame-Options', 'SAMEORIGIN');            // ضد Clickjacking
+        $response-&gt;headers-&gt;set('Referrer-Policy', 'strict-origin-when-cross-origin');
+        $response-&gt;headers-&gt;set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+
+        if ($request-&gt;isSecure()) {
+            $response-&gt;headers-&gt;set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+        }
+
+        return $response;
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+// bootstrap/app.php (فقط بخش middleware)
+use App\Http\Middleware\SecurityHeaders;
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Configuration\Exceptions;
+use Illuminate\Foundation\Configuration\Middleware;
+
+return Application::configure(basePath: dirname(__DIR__))
+    -&gt;withRouting(
+        web: __DIR__.'/../routes/web.php',
+        api: __DIR__.'/../routes/api.php',
+        commands: __DIR__.'/../routes/console.php',
+        health: '/up',
+    )
+    -&gt;withMiddleware(function (Middleware $middleware) {
+        $middleware-&gt;append(SecurityHeaders::class);   // روی همه‌ی پاسخ‌ها
+    })
+    -&gt;withExceptions(function (Exceptions $exceptions) {
+        //
+    })-&gt;create();</code></pre></div></div><div class="note info"><div class="note-title">Content-Security-Policy</div><p>CSP قوی‌ترین دفاع در برابر XSS است ولی اگر اشتباه تنظیم شود سایت را می‌شکند (اسکریپت‌های درون‌خطی، CDNها). با حالت <code>Content-Security-Policy-Report-Only</code> شروع کن و کم‌کم سخت‌گیری کن.</p></div></section><section class="lesson" id="secrets"><div class="lesson-head"><span class="lesson-num">۷</span><h2>اسرار، وابستگی‌ها و سرور</h2></div><ul><li><b>.env و اسرار:</b> هرگز در گیت؛ ریشه‌ی وب‌سرور باید پوشه‌ی <code>public</code> باشد تا <code>.env</code> و <code>vendor</code> از بیرون دیده نشوند. اگر کلیدی لو رفت فوراً عوضش کن.</li><li><b>وابستگی‌ها:</b> <code>composer audit</code> و <code>npm audit</code> را مرتب اجرا کن و پکیج‌ها را به‌روز نگه دار (در CI خودکارش می‌کنیم).</li><li><b>رمزنگاری داده‌ی حساس:</b> ستونی مثل کد ملی یا توکن‌ها را با cast <code>encrypted</code> ذخیره کن (کلید در <code>APP_KEY</code> است؛ گم‌شدنش یعنی از دست رفتن داده‌ها).</li><li><b>HTTPS اجباری:</b> گواهی TLS را فعال و به HTTPS ریدایرکت کن؛ در لاراول <code>URL::forceScheme('https')</code> در پروداکشن.</li><li><b>لاگ و پایش:</b> تلاش‌های ورود ناموفق، خطاهای ۴۰۳/۵۰۰ و کوئری‌های عجیب را لاگ کن؛ لاگ نباید رمز یا توکن داشته باشد.</li><li><b>بکاپ:</b> بکاپ خودکار دیتابیس و فایل‌ها و تست بازیابی (بکاپی که هرگز restore نشده، بکاپ نیست).</li><li><b>SSRF:</b> اگر کاربر آدرسی بدهد و سرور تو درخواست بزند، آدرس‌های داخلی (<code>localhost</code>، شبکه‌ی خصوصی) را مسدود کن.</li></ul><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Customer extends Model
+{
+    protected function casts(): array
+    {
+        return [
+            'national_id' =&gt; 'encrypted',   // در دیتابیس رمز شده، در کد عادی
+        ];
+    }
+}</code></pre></div></div></section><section class="lesson" id="checklist"><div class="lesson-head"><span class="lesson-num">۸</span><h2>چک‌لیست قبل از انتشار</h2></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>مورد</th><th>وضعیت مطلوب</th></tr></thead><tbody><tr><td><code>APP_DEBUG</code></td><td>false</td></tr><tr><td>HTTPS و کوکی امن</td><td>فعال</td></tr><tr><td>ریشه‌ی وب‌سرور</td><td>پوشه‌ی public</td></tr><tr><td>Authorization روی همه‌ی مسیرها</td><td>Policy + تست</td></tr><tr><td>Rate limit ورود و OTP</td><td>فعال</td></tr><tr><td>آپلود فایل</td><td>اعتبارسنجی + نام تصادفی + دیسک خصوصی</td></tr><tr><td>Mass Assignment</td><td><code>$fillable</code> محدود</td></tr><tr><td><code>{!! !!}</code> در Blade</td><td>فقط برای HTML پاک‌سازی‌شده</td></tr><tr><td>وابستگی‌ها</td><td><code>composer audit</code> تمیز</td></tr><tr><td>بکاپ و تست بازیابی</td><td>انجام شده</td></tr><tr><td>هدرهای امنیتی</td><td>فعال</td></tr></tbody></table></div></section><section class="lesson" id="test"><div class="lesson-head"><span class="lesson-num">۹</span><h2>تست امنیتی نمونه</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Tests\Feature;
+
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
+use Tests\TestCase;
+
+class SecurityTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_user_cannot_set_own_role_via_mass_assignment(): void
+    {
+        $user = User::factory()-&gt;create(['role' =&gt; 'customer']);
+
+        $this-&gt;actingAs($user)-&gt;put('/profile', ['name' =&gt; 'علی', 'role' =&gt; 'admin']);
+
+        $this-&gt;assertSame('customer', $user-&gt;fresh()-&gt;role);
+    }
+
+    public function test_only_images_can_be_uploaded_as_avatar(): void
+    {
+        Storage::fake('public');
+        $user = User::factory()-&gt;create();
+
+        $this-&gt;actingAs($user)
+             -&gt;post('/avatar', ['avatar' =&gt; UploadedFile::fake()-&gt;create('shell.php', 10, 'application/x-php')])
+             -&gt;assertSessionHasErrors('avatar');
+    }
+
+    public function test_login_is_rate_limited(): void
+    {
+        for ($i = 0; $i &lt; 5; $i++) {
+            $this-&gt;post('/login', ['email' =&gt; 'a@b.com', 'password' =&gt; 'wrong']);
+        }
+
+        $this-&gt;post('/login', ['email' =&gt; 'a@b.com', 'password' =&gt; 'wrong'])-&gt;assertStatus(429);
+    }
+}</code></pre></div></div></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۱۰</span><h2>اشتباه‌های رایج</h2></div><ol><li><code>{!! !!}</code> روی ورودی کاربر.</li><li><code>$request->all()</code> در create/update و Mass Assignment.</li><li><code>APP_DEBUG=true</code> روی سرور واقعی (نمایش کامل خطا و حتی کلیدهای .env).</li><li>ذخیره‌ی فایل آپلودی با نام و پسوند اصلی در <code>public</code>.</li><li>نداشتن Rate Limit روی ورود و ارسال OTP.</li><li>کلید و رمز در گیت یا در پاسخ API.</li><li>فرض‌کردن «کسی آدرس را حدس نمی‌زند»؛ امنیت با مخفی‌بودن آدرس ساخته نمی‌شود.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>فرم نظر بساز و عمداً با <code>{!! !!}</code> نمایش بده، یک <code>&lt;script&gt;</code> امتحان کن، بعد درستش کن.</li><li>تست Mass Assignment بالا را بنویس.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li>آپلود آواتار امن را پیاده کن و تست کن فایل غیرتصویری رد می‌شود.</li><li>لینک دانلود فاکتور را با Signed URL ۳۰ دقیقه‌ای بساز.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>Rate Limit ورود را اضافه کن و تست ۴۲۹ بنویس.</li><li>با <code>composer audit</code> پروژه‌ات را اسکن کن و هر هشدار را بررسی کن.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://owasp.org/Top10/" target="_blank" rel="noopener">OWASP Top 10</a> — <a href="https://laravel.com/docs/13.x/authentication" target="_blank" rel="noopener">Laravel Security</a> — <a href="https://laravel.com/docs/13.x/encryption" target="_blank" rel="noopener">Laravel Encryption</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="l3-cicd.html">→ بخش قبل: CI/CD و GitHub Actions</a><a href="l3-package.html">بعدی: ساخت پکیج لاراول ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

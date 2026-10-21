@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۲ · درس ۱ | Eloquent پیشرفته: Scope، Accessor و Eager Loading</title><meta name="description" content="Accessor و Mutator با Attribute، Cast و Enum، Scope، رفع N+1 با with و preventLazyLoading، Soft Delete و پردازش دسته‌ای در Eloquent.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۲ · درس ۱</span><h1>Eloquent پیشرفته: Scope، Accessor و Eager Loading</h1><p>Eloquent تا اینجا برایت CRUD ساخته؛ حالا یاد می‌گیری آن را سریع، تمیز و بدون N+1 بنویسی؛ تفاوت یک سایت «کار می‌کند» با سایت «حرفه‌ای».</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#accessor">Accessor و Mutator: تبدیل داده هنگام خواندن و نوشتن</a></li><li><a href="#casts">Cast: نوع داده‌ی درست خودکار</a></li><li><a href="#scopes">Scope: کوئری‌های تکراری را نام بگذار</a></li><li><a href="#nplus1">مشکل N+1 و Eager Loading</a></li><li><a href="#soft">Soft Delete: حذف نرم</a></li><li><a href="#big">پردازش داده‌ی زیاد: chunk و cursor</a></li><li><a href="#project">گام پروژه: بهینه‌سازی لیست فروشگاه</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="accessor"><div class="lesson-head"><span class="lesson-num">۱</span><h2>Accessor و Mutator: تبدیل داده هنگام خواندن و نوشتن</h2></div><p>گاهی داده‌ی دیتابیس با چیزی که می‌خواهیم نمایش بدهیم یا ذخیره کنیم فرق دارد: قیمت را با جداکننده‌ی هزارگان می‌خواهیم، ایمیل را همیشه با حروف کوچک ذخیره می‌کنیم. <b>Accessor</b> هنگام «خواندن» و <b>Mutator</b> هنگام «نوشتن» یک ویژگی عمل می‌کند. در لاراول مدرن هر دو را با یک متد از نوع <code>Attribute</code> می‌نویسیم.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Database\Eloquent\Model;
+
+class Product extends Model
+{
+    // Accessor: $product-&gt;price_formatted
+    protected function priceFormatted(): Attribute
+    {
+        return Attribute::make(
+            get: fn () =&gt; number_format($this-&gt;price) . ' تومان',
+        );
+    }
+
+    // هم Accessor هم Mutator روی ستون title
+    protected function title(): Attribute
+    {
+        return Attribute::make(
+            get: fn (string $value) =&gt; trim($value),
+            set: fn (string $value) =&gt; mb_substr(trim($value), 0, 200),
+        );
+    }
+}</code></pre></div></div><div class="note info"><div class="note-title">نام‌گذاری</div><p>نام متد camelCase است ولی ویژگی با snake_case خوانده می‌شود: متد <code>priceFormatted()</code> ← <code>$product->price_formatted</code>. ویژگی‌ای که ستون واقعی ندارد (مثل priceFormatted) را اگر هنگام تبدیل به JSON هم بخواهی، در <code>$appends</code> بنویس.</p></div></section><section class="lesson" id="casts"><div class="lesson-head"><span class="lesson-num">۲</span><h2>Cast: نوع داده‌ی درست خودکار</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Models;
+
+use App\Enums\OrderStatus;
+use Illuminate\Database\Eloquent\Model;
+
+class Order extends Model
+{
+    protected function casts(): array
+    {
+        return [
+            'paid_at'  =&gt; 'datetime',
+            'is_gift'  =&gt; 'boolean',
+            'meta'     =&gt; 'array',          // JSON ← آرایه
+            'status'   =&gt; OrderStatus::class, // رشته ← Enum
+            'password' =&gt; 'hashed',         // هنگام ذخیره خودکار هش می‌شود
+        ];
+    }
+}</code></pre></div></div><p>با cast، <code>$order->paid_at</code> یک شیء Carbon است (<code>->diffForHumans()</code>، <code>->format()</code>) و <code>$order->status</code> یک Enum است؛ دیگر لازم نیست رشته‌ها را دستی مقایسه کنی.</p></section><section class="lesson" id="scopes"><div class="lesson-head"><span class="lesson-num">۳</span><h2>Scope: کوئری‌های تکراری را نام بگذار</h2></div><p>شرط‌هایی مثل «فقط محصولات موجود» را به‌جای تکرار در ده جا، یک‌بار با نام می‌نویسیم.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+
+class Product extends Model
+{
+    public function scopeInStock(Builder $query): Builder
+    {
+        return $query-&gt;where('stock', '&gt;', 0);
+    }
+
+    public function scopePriceBetween(Builder $query, int $min, int $max): Builder
+    {
+        return $query-&gt;whereBetween('price', [$min, $max]);
+    }
+}
+
+// استفاده (قابل زنجیره‌شدن):
+// Product::inStock()-&gt;priceBetween(100000, 900000)-&gt;latest()-&gt;paginate(12);</code></pre></div></div><div class="note tip"><div class="note-title">Global Scope</div><p>اگر شرطی باید «همیشه» روی یک مدل اعمال شود (مثل فقط رکوردهای فعال)، Global Scope است. ولی با احتیاط: رفتار پنهان می‌سازد و خطایابی را سخت می‌کند. Soft Delete خودش یک Global Scope است.</p></div></section><section class="lesson" id="nplus1"><div class="lesson-head"><span class="lesson-num">۴</span><h2>مشکل N+1 و Eager Loading</h2></div><p>تصور کن ۵۰ محصول را می‌گیری و در صفحه نام دسته‌ی هرکدام را نشان می‌دهی. اگر دسته‌ها را داخل حلقه بگیری، لاراول <b>۱ کوئری برای محصولات + ۵۰ کوئری برای دسته‌ها = ۵۱ کوئری</b> می‌زند. به این می‌گویند N+1 و یکی از رایج‌ترین دلایل کندی سایت‌هاست.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+use App\Models\Product;
+
+// ❌ N+1: هر بار $product-&gt;category یک کوئری جدید
+$products = Product::all();
+foreach ($products as $product) {
+    echo $product-&gt;category-&gt;name;
+}
+
+// ✅ Eager Loading: فقط ۲ کوئری
+$products = Product::with('category')-&gt;get();
+
+// چند رابطه و رابطه‌ی تودرتو
+$products = Product::with(['category', 'reviews.user'])-&gt;get();
+
+// فقط بخشی از ستون‌ها (id را حتماً بگیر)
+$products = Product::with('category:id,name')-&gt;get();
+
+// شمارش و جمع بدون لود کردن همه‌ی رکوردها
+$categories = App\Models\Category::withCount('products')-&gt;withSum('products', 'stock')-&gt;get();
+// $category-&gt;products_count , $category-&gt;products_sum_stock</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Providers;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\ServiceProvider;
+
+class AppServiceProvider extends ServiceProvider
+{
+    public function boot(): void
+    {
+        // در حالت توسعه، هر Lazy Loading را خطا کن تا N+1 را همان لحظه بگیری
+        Model::preventLazyLoading(! $this-&gt;app-&gt;isProduction());
+    }
+}</code></pre></div></div><div class="note tip"><div class="note-title">ابزار نمایشگر</div><p>با Laravel Debugbar یا Telescope تعداد کوئری‌های هر صفحه را ببین. اگر صفحه‌ی لیست محصولات ۵۰ کوئری می‌زند، یک جای کار می‌لنگد.</p></div></section><section class="lesson" id="soft"><div class="lesson-head"><span class="lesson-num">۵</span><h2>Soft Delete: حذف نرم</h2></div><p>به‌جای پاک‌کردن واقعی، فقط ستون <code>deleted_at</code> پر می‌شود. مثلاً برای سفارش‌ها و کاربران که ممکن است بعداً لازم شوند یا سابقه‌ی مالی دارند.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+// migration
+Schema::table('products', function (Blueprint $table) {
+    $table-&gt;softDeletes();
+});
+
+// model
+use Illuminate\Database\Eloquent\SoftDeletes;
+
+class Product extends Model
+{
+    use SoftDeletes;
+}
+
+// استفاده
+$product-&gt;delete();                       // فقط deleted_at پر می‌شود
+Product::withTrashed()-&gt;find($id);        // همراه حذف‌شده‌ها
+Product::onlyTrashed()-&gt;get();            // فقط حذف‌شده‌ها
+$product-&gt;restore();                      // برگرداندن
+$product-&gt;forceDelete();                  // حذف واقعی و دائمی</code></pre></div></div><div class="note warn"><div class="note-title">یکتایی و Soft Delete</div><p>اگر ستونی مثل ایمیل <code>unique</code> است، رکورد حذف‌نرم‌شده هنوز آن مقدار را اشغال کرده است. این را در طراحی دیتابیس و Validation حتماً در نظر بگیر.</p></div></section><section class="lesson" id="big"><div class="lesson-head"><span class="lesson-num">۶</span><h2>پردازش داده‌ی زیاد: chunk و cursor</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+use App\Models\Order;
+
+// ❌ همه را یک‌جا در حافظه می‌ریزد (با ۱ میلیون سطر، حافظه می‌ترکد)
+// Order::all()-&gt;each(...)
+
+// ✅ دسته‌دسته: هر بار ۵۰۰ تا
+Order::where('status', 'paid')-&gt;chunkById(500, function ($orders) {
+    foreach ($orders as $order) {
+        // کاری روی هر سفارش
+    }
+});
+
+// ✅ cursor: یکی‌یکی با حافظه‌ی کم
+foreach (Order::where('status', 'paid')-&gt;cursor() as $order) {
+    // ...
+}
+
+// when(): شرط اختیاری در کوئری بدون if اضافه
+$products = Product::query()
+    -&gt;when(request('q'), fn ($q, $term) =&gt; $q-&gt;where('title', 'like', "%{$term}%"))
+    -&gt;when(request('min'), fn ($q, $min) =&gt; $q-&gt;where('price', '&gt;=', $min))
+    -&gt;paginate(12);</code></pre></div></div><div class="note info"><div class="note-title">chunk یا chunkById؟</div><p>اگر داخل حلقه همان ستونی را که فیلتر کرده‌ای تغییر می‌دهی (مثلاً status)، <code>chunkById</code> امن‌تر است؛ <code>chunk</code> ممکن است سطرها را جا بیندازد.</p></div></section><section class="lesson" id="project"><div class="lesson-head"><span class="lesson-num">۷</span><h2>گام پروژه: بهینه‌سازی لیست فروشگاه</h2></div><ol><li>در مدل <code>Product</code> یک Accessor به نام <code>price_formatted</code> و scope به نام <code>inStock</code> بساز.</li><li>در <code>ProductController@index</code> از <code>with('category:id,name')</code> و <code>inStock()</code> استفاده کن و <code>paginate(12)</code> بزن.</li><li>در AppServiceProvider خط <code>preventLazyLoading</code> را اضافه کن و اگر جایی خطا داد، رابطه را eager load کن.</li><li>برای محصولات Soft Delete فعال کن و در پنل ادمین «سطل زباله» با <code>onlyTrashed()</code> و دکمه‌ی بازگردانی بساز.</li></ol></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۸</span><h2>اشتباه‌های رایج</h2></div><ol><li>فراموش‌کردن <code>with()</code> و N+1 (بزرگ‌ترین مشکل عملکرد).</li><li>گرفتن <code>all()</code> روی جدول بزرگ.</li><li>نوشتن منطق فرمت‌دهی داخل Blade به‌جای Accessor.</li><li>انتخاب ستون‌ها با <code>with('category:name')</code> و فراموش‌کردن <code>id</code> (رابطه کار نمی‌کند).</li><li>استفاده از Global Scope بدون مستندسازی و گیج‌شدن تیم.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>برای مدل User یک Accessor به نام <code>full_name</code> بنویس (نام + نام‌خانوادگی).</li><li>ستون <code>settings</code> از نوع JSON را با cast به <code>array</code> بخوان و بنویس.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li>یک scope به نام <code>popular</code> بنویس که محصولات با بیش از ۱۰ فروش را برگرداند.</li><li>کوئری جست‌وجو با <code>when()</code> برای نام، دسته و بازه‌ی قیمت بساز.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>صفحه‌ای بساز که ۵۰ محصول را با دسته‌شان نشان بدهد؛ یک‌بار با N+1 و یک‌بار با <code>with</code>. تعداد کوئری را مقایسه کن.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://laravel.com/docs/13.x/eloquent-mutators" target="_blank" rel="noopener">Eloquent: Mutators & Casting</a> — <a href="https://laravel.com/docs/13.x/eloquent-relationships#eager-loading" target="_blank" rel="noopener">Eloquent: Relationships (Eager Loading)</a> — <a href="https://laravel.com/docs/13.x/eloquent#soft-deleting" target="_blank" rel="noopener">Eloquent: Getting Started (Soft Deleting)</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="project-shop.html">→ بخش قبل: پروژه‌ی اول: فروشگاه لاراول</a><a href="l2-testing.html">بعدی: تست‌نویسی (Feature و Unit) ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

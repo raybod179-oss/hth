@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۳ · درس 1 | Policy، Gate و نقش‌ها</title><meta name="description" content="Authorization در لاراول: Policy، Gate، authorize، can در Blade و روت، جلوگیری از IDOR، نقش و دسترسی با Spatie و تست دسترسی‌ها.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۳ · درس 1</span><h1>Policy، Gate و نقش‌ها</h1><p>ورود کاربر کافی نیست؛ باید معلوم باشد «چه چیزی» را می‌تواند ببیند و تغییر دهد. این درس مهم‌ترین مبحث امنیتی سایت‌های چندکاربره (مثل مارکت‌پلیس) را کامل می‌کند.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#why">چرا Authorization؟ (و خطر IDOR)</a></li><li><a href="#policy">Policy: قوانین دسترسی هر مدل</a></li><li><a href="#use">استفاده در کنترلر، روت و Blade</a></li><li><a href="#gate">Gate: قوانین بدون مدل</a></li><li><a href="#roles">نقش و دسترسی: ساده یا Spatie؟</a></li><li><a href="#test">تست دسترسی؛ مهم‌ترین تست امنیتی</a></li><li><a href="#project">گام پروژه: فروشنده فقط محصول خودش</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="why"><div class="lesson-head"><span class="lesson-num">۱</span><h2>چرا Authorization؟ (و خطر IDOR)</h2></div><p><b>Authentication</b> یعنی «تو کی هستی؟» (ورود). <b>Authorization</b> یعنی «اجازه‌ی انجام این کار را داری؟». بزرگ‌ترین خطای امنیتی پروژه‌های تازه‌کار همین‌جاست: کاربر ورود کرده و فقط با عوض‌کردن عدد در آدرس، سفارش، فاکتور یا محصول کاربر دیگر را می‌بیند یا ویرایش می‌کند.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">text</span></div><pre><code>/orders/15      ← سفارش من
+/orders/16      ← سفارش یک نفر دیگر! اگر چک نکنی، باز می‌شود</code></pre></div></div><p>به این حفره <b>IDOR</b> (دسترسی مستقیم ناامن به شیء) می‌گویند و فقط با چک‌کردن مالکیت یا نقش در سمت سرور بسته می‌شود؛ مخفی‌کردن دکمه در صفحه هیچ امنیتی نمی‌دهد.</p></section><section class="lesson" id="policy"><div class="lesson-head"><span class="lesson-num">۲</span><h2>Policy: قوانین دسترسی هر مدل</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan make:policy OrderPolicy --model=Order</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Policies;
+
+use App\Models\Order;
+use App\Models\User;
+
+class OrderPolicy
+{
+    // قبل از همه‌ی متدها: ادمین همه‌کاره است (null یعنی «بگذار بقیه‌ی متدها تصمیم بگیرند»)
+    public function before(User $user, string $ability): ?bool
+    {
+        return $user-&gt;role === 'admin' ? true : null;
+    }
+
+    public function viewAny(User $user): bool
+    {
+        return true;                      // لیست سفارش‌های خودش (در کوئری فیلتر می‌شود)
+    }
+
+    public function view(User $user, Order $order): bool
+    {
+        return $user-&gt;id === $order-&gt;user_id;
+    }
+
+    public function update(User $user, Order $order): bool
+    {
+        // فقط صاحب سفارش و فقط تا قبل از پرداخت
+        return $user-&gt;id === $order-&gt;user_id &amp;&amp; $order-&gt;status === 'pending';
+    }
+
+    public function delete(User $user, Order $order): bool
+    {
+        return false;                     // مشتری حق حذف ندارد
+    }
+}</code></pre></div></div><div class="note info"><div class="note-title">ثبت خودکار</div><p>اگر مدل <code>App\Models\Order</code> و Policy آن <code>App\Policies\OrderPolicy</code> باشد، لاراول خودش آن‌ها را به هم وصل می‌کند و نیازی به ثبت دستی نیست.</p></div></section><section class="lesson" id="use"><div class="lesson-head"><span class="lesson-num">۳</span><h2>استفاده در کنترلر، روت و Blade</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Order;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
+
+class OrderController extends Controller
+{
+    public function index(Request $request)
+    {
+        // اول فیلتر در کوئری: کاربر فقط سفارش‌های خودش را می‌بیند
+        $orders = $request-&gt;user()-&gt;orders()-&gt;latest()-&gt;paginate(10);
+
+        return view('orders.index', compact('orders'));
+    }
+
+    public function show(Order $order)
+    {
+        Gate::authorize('view', $order);         // اگر اجازه نداشت، خودکار ۴۰۳
+
+        return view('orders.show', compact('order'));
+    }
+
+    public function update(Request $request, Order $order)
+    {
+        Gate::authorize('update', $order);
+
+        $order-&gt;update($request-&gt;validate(['note' =&gt; ['nullable', 'string', 'max:500']]));
+
+        return back()-&gt;with('success', 'ذخیره شد');
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+// روی روت (Middleware)
+use App\Http\Controllers\OrderController;
+use Illuminate\Support\Facades\Route;
+
+Route::put('/orders/{order}', [OrderController::class, 'update'])
+    -&gt;middleware(['auth', 'can:update,order']);</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">html</span></div><pre><code>@can('update', $order)
+    &lt;a href="{{ route('orders.edit', $order) }}"&gt;ویرایش&lt;/a&gt;
+@endcan
+
+@cannot('delete', $order)
+    &lt;span&gt;امکان حذف وجود ندارد&lt;/span&gt;
+@endcannot</code></pre></div></div><div class="note warn"><div class="note-title">دو لایه</div><p><code>@can</code> فقط برای نمایش زیباتر دکمه است. محافظت واقعی <code>Gate::authorize</code> یا <code>can:</code> در سمت سرور است؛ حتماً هر دو را بنویس.</p></div><div class="note tip"><div class="note-title">۴۰۳ یا ۴۰۴؟</div><p>اگر نمی‌خواهی وجود یک رکورد برای غریبه‌ها لو برود (مثلاً سفارش دیگران)، در Policy به‌جای <code>false</code> می‌توانی <code>Response::denyAsNotFound()</code> برگردانی تا کاربر ۴۰۴ ببیند.</p></div></section><section class="lesson" id="gate"><div class="lesson-head"><span class="lesson-num">۴</span><h2>Gate: قوانین بدون مدل</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Providers;
+
+use App\Models\User;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\ServiceProvider;
+
+class AppServiceProvider extends ServiceProvider
+{
+    public function boot(): void
+    {
+        Gate::define('view-admin-panel', fn (User $user) =&gt; in_array($user-&gt;role, ['admin', 'support'], true));
+    }
+}
+
+// استفاده:  Gate::authorize('view-admin-panel');   یا   @can('view-admin-panel')</code></pre></div></div></section><section class="lesson" id="roles"><div class="lesson-head"><span class="lesson-num">۵</span><h2>نقش و دسترسی: ساده یا Spatie؟</h2></div><p>برای شروع یک ستون <code>role</code> (و ترجیحاً Enum) کافی است: admin، vendor، customer. وقتی نیاز به «دسترسی‌های ریز» پیدا کردی (مثلاً «ویرایش محصول» جدا از «حذف محصول» و ادمینی که نقش سفارشی بسازد)، پکیج <b>spatie/laravel-permission</b> استاندارد جامعه است.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>composer require spatie/laravel-permission
+php artisan vendor:publish --provider="Spatie\Permission\PermissionServiceProvider"
+php artisan migrate</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Models;
+
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Spatie\Permission\Traits\HasRoles;
+
+class User extends Authenticatable
+{
+    use HasRoles;
+}
+
+// استفاده
+// $user-&gt;assignRole('vendor');
+// $user-&gt;givePermissionTo('edit products');
+// $user-&gt;can('edit products');     // با Gate هم‌خوان است: @can و authorize کار می‌کنند
+// $user-&gt;hasRole('admin');</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+// bootstrap/app.php  (فقط بخش alias را به فایل خودت اضافه کن)
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Configuration\Exceptions;
+use Illuminate\Foundation\Configuration\Middleware;
+use Spatie\Permission\Middleware\PermissionMiddleware;
+use Spatie\Permission\Middleware\RoleMiddleware;
+
+return Application::configure(basePath: dirname(__DIR__))
+    -&gt;withRouting(
+        web: __DIR__.'/../routes/web.php',
+        api: __DIR__.'/../routes/api.php',
+        commands: __DIR__.'/../routes/console.php',
+        health: '/up',
+    )
+    -&gt;withMiddleware(function (Middleware $middleware) {
+        $middleware-&gt;alias([
+            'role'       =&gt; RoleMiddleware::class,
+            'permission' =&gt; PermissionMiddleware::class,
+        ]);
+    })
+    -&gt;withExceptions(function (Exceptions $exceptions) {
+        //
+    })-&gt;create();
+
+// استفاده:  Route::middleware(['auth', 'role:admin'])-&gt;prefix('admin')-&gt;group(...);</code></pre></div></div><div class="note warn"><div class="note-title">کش نقش‌ها</div><p>Spatie دسترسی‌ها را کش می‌کند. بعد از تغییر مستقیم در دیتابیس یا Seeder دستور <code>php artisan permission:cache-reset</code> را بزن. نام دقیق دستورات و تنظیمات را در مستندات پکیج ببین؛ ممکن است با نسخه‌ی لاراولت متفاوت باشد.</p></div></section><section class="lesson" id="test"><div class="lesson-head"><span class="lesson-num">۶</span><h2>تست دسترسی؛ مهم‌ترین تست امنیتی</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Tests\Feature;
+
+use App\Models\Order;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class OrderPolicyTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_user_cannot_view_someone_elses_order(): void
+    {
+        $order = Order::factory()-&gt;create();            // مالک یک کاربر دیگر
+        $stranger = User::factory()-&gt;create();
+
+        $this-&gt;actingAs($stranger)-&gt;get("/orders/{$order-&gt;id}")-&gt;assertForbidden();
+    }
+
+    public function test_owner_can_view_own_order(): void
+    {
+        $user = User::factory()-&gt;create();
+        $order = Order::factory()-&gt;create(['user_id' =&gt; $user-&gt;id]);
+
+        $this-&gt;actingAs($user)-&gt;get("/orders/{$order-&gt;id}")-&gt;assertOk();
+    }
+
+    public function test_admin_can_view_any_order(): void
+    {
+        $admin = User::factory()-&gt;create(['role' =&gt; 'admin']);
+        $order = Order::factory()-&gt;create();
+
+        $this-&gt;actingAs($admin)-&gt;get("/orders/{$order-&gt;id}")-&gt;assertOk();
+    }
+}</code></pre></div></div></section><section class="lesson" id="project"><div class="lesson-head"><span class="lesson-num">۷</span><h2>گام پروژه: فروشنده فقط محصول خودش</h2></div><p>در مارکت‌پلیس چندفروشنده، هر فروشنده فقط به محصولات و سفارش‌های خودش دسترسی دارد.</p><ol><li>Policy برای <code>Product</code> بساز: <code>update</code> و <code>delete</code> فقط وقتی <code>$product->vendor_id === $user->vendor_id</code>.</li><li>لیست پنل فروشنده را با <code>Product::where('vendor_id', ...)</code> محدود کن.</li><li>تست بنویس که فروشنده‌ی B نتواند محصول فروشنده‌ی A را ویرایش کند (۴۰۳).</li><li>ادمین در <code>before()</code> همه‌کاره باشد.</li></ol></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۸</span><h2>اشتباه‌های رایج</h2></div><ol><li>چک‌نکردن مالکیت و آسیب‌پذیری IDOR (رایج‌ترین).</li><li>اتکا به مخفی‌کردن دکمه در Blade به‌جای <code>authorize</code> سمت سرور.</li><li>کنترل فقط روی نمایش، نه روی ثبت/ویرایش/حذف.</li><li>نقش را از ورودی فرم/درخواست قبول‌کردن (Mass Assignment)؛ <code>role</code> نباید در <code>$fillable</code> باشد.</li><li>ننوشتن تست برای دسترسی‌ها.</li><li>نشت داده در API: Resource باید فقط چیزی را برگرداند که کاربر حق دیدنش دارد.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>Policy برای <code>Review</code> بساز: هر کاربر فقط نظر خودش را ویرایش/حذف کند و ادمین هر نظری را.</li><li>در Blade دکمه‌ها را با <code>@can</code> نشان بده.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li>مسیر <code>/admin</code> را با Gate یا <code>role:admin</code> ببند و تست بنویس که کاربر عادی ۴۰۳ می‌گیرد.</li><li>تلاش کن عمداً یک IDOR بسازی (بدون authorize)، آن را با تست نشان بده و بعد ببند.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>Spatie را نصب کن، نقش‌های admin، editor و customer و چند Permission بساز و با Seeder به کاربران بده.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://laravel.com/docs/13.x/authorization" target="_blank" rel="noopener">Authorization</a> — <a href="https://spatie.be/docs/laravel-permission" target="_blank" rel="noopener">spatie/laravel-permission</a> — <a href="https://owasp.org/Top10/" target="_blank" rel="noopener">OWASP: Broken Access Control</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="project-booking.html">→ بخش قبل: پروژه‌ی سوم: سیستم رزرو وقت</a><a href="l3-clean-code.html">بعدی: Service و Repository و کد تمیز ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

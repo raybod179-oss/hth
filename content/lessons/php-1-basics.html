@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۰ · درس ۳ | مبانی PHP ۱: متغیر، شرط و حلقه</title><meta name="description" content="پایه‌ی هر چیزی که در لاراول می‌نویسی: اجرای PHP، متغیر، رشته، شرط و حلقه؛ با کد قابل کپی، خروجی نمونه و تمرین.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۰ · درس ۳</span><h1>مبانی PHP ۱: متغیر، شرط و حلقه</h1><p>از «هیچ نمی‌دانم» تا نوشتن اولین برنامه‌ی واقعی. هر بخش کوتاه است، کد دارد، خروجی را نشانت می‌دهد و آخرش تمرین. همه‌ی کدها را خودت تایپ کن، کپی کردن یاد نمی‌دهد.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#what">PHP چیست و کجا اجرا می‌شود؟</a></li><li><a href="#first">اولین فایل PHP</a></li><li><a href="#vars">متغیرها و انواع داده</a></li><li><a href="#strings">کار با رشته‌ها</a></li><li><a href="#ops">عملگرها</a></li><li><a href="#if">شرط‌ها: if، match و عملگر سه‌تایی</a></li><li><a href="#loops">حلقه‌ها</a></li><li><a href="#project">گام پروژه: جدول ضرب و کارنامه</a></li><li><a href="#mistakes">اشتباه‌های رایج مبتدی‌ها</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="what"><div class="lesson-head"><span class="lesson-num">۱</span><h2>PHP چیست و کجا اجرا می‌شود؟</h2></div><p>PHP یک زبان برنامه‌نویسی سمت سرور است؛ یعنی کدش روی سرور اجرا می‌شود و خروجی (معمولاً HTML) برای مرورگر فرستاده می‌شود. لاراول هم فقط یک مجموعه‌ی بزرگ و منظم از کدهای PHP است؛ پس هرچه در این درس‌ها محکم یاد بگیری، در کل دوره به کارت می‌آید.</p><p>برای اجرای کد دو راه داری و ما از هر دو استفاده می‌کنیم:</p><ul><li><b>از طریق مرورگر:</b> فایل را داخل پوشه‌ی <code>htdocs</code> در XAMPP (یا <code>www</code> در Laragon) بگذار و آدرس <code>http://localhost/test.php</code> را باز کن.</li><li><b>از طریق ترمینال:</b> داخل پوشه‌ی فایل بنویس <code>php test.php</code>. برای تمرین‌های کوتاه سریع‌ترین راه همین است.</li></ul><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php -v
+# باید نسخه‌ی 8.3 یا بالاتر را ببینی. اگر دستور شناخته نشد، متغیر PATH در درس «راه‌اندازی محیط کار» را دوباره چک کن.</code></pre></div></div><div class="note tip"><div class="note-title">نسخه‌ی PHP</div><p>لاراول ۱۲ به PHP 8.2 یا بالاتر نیاز دارد. این دوره روی PHP 8.3 و بالاتر نوشته شده تا با آخرین قابلیت‌ها هم‌خوان باشد.</p></div></section><section class="lesson" id="first"><div class="lesson-head"><span class="lesson-num">۲</span><h2>اولین فایل PHP</h2></div><p>یک فایل به نام <code>hello.php</code> بساز. کد PHP همیشه داخل تگ <code>&lt;?php</code> نوشته می‌شود و هر دستور با <code>;</code> تمام می‌شود.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+// این یک کامنت تک‌خطی است
+# این هم کامنت است (کمتر استفاده می‌شود)
+/* این کامنت
+   چندخطی است */
+
+echo "سلام Rayvo!";
+echo "&lt;br&gt;";
+echo "اولین برنامه‌ی PHP من";</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>سلام Rayvo!
+اولین برنامه‌ی PHP من</code></pre></div></div><div class="note info"><div class="note-title">echo یا print؟</div><p>هر دو متن چاپ می‌کنند ولی <code>echo</code> سریع‌تر و رایج‌تر است. در فایل‌هایی که فقط PHP دارند، تگ پایانی <code>?&gt;</code> را ننویس؛ این استاندارد لاراول است و جلوی خطای «فاصله‌ی اضافه» را می‌گیرد.</p></div></section><section class="lesson" id="vars"><div class="lesson-head"><span class="lesson-num">۳</span><h2>متغیرها و انواع داده</h2></div><p>متغیر یک «جعبه‌ی نام‌دار» برای نگه‌داشتن مقدار است. نام متغیر با <code>$</code> شروع می‌شود و حساس به بزرگی و کوچکی حروف است (<code>$name</code> با <code>$Name</code> فرق دارد).</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+$name   = "علی";        // string  (متن)
+$age    = 24;           // int     (عدد صحیح)
+$price  = 199.5;        // float   (عدد اعشاری)
+$isPaid = true;         // bool    (درست/نادرست)
+$nothing = null;        // null    (هیچ)
+
+var_dump($name, $age, $price, $isPaid, $nothing);</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>string(6) "علی"
+int(24)
+float(199.5)
+bool(true)
+NULL</code></pre></div></div><p><code>var_dump()</code> بهترین دوست تو برای اشکال‌زدایی است: هم مقدار را نشان می‌دهد هم نوع را. (در متن فارسی طول رشته بر حسب بایت است، برای همین عدد ۶ می‌بینی.)</p><div class="note tip"><div class="note-title">قاعده‌ی نام‌گذاری</div><p>نام متغیر را انگلیسی، واضح و با camelCase بنویس: <code>$totalPrice</code>، نه <code>$tp</code>. کدی که بعد از یک ماه هم خودت بفهمی، کد خوبی است.</p></div></section><section class="lesson" id="strings"><div class="lesson-head"><span class="lesson-num">۴</span><h2>کار با رشته‌ها</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+$first = "رایبد";
+$last  = "اکبرلو";
+
+// الحاق با نقطه
+$full = $first . " " . $last;
+
+// داخل کوتیشن دوتایی، متغیر مستقیم جایگزین می‌شود
+echo "نام کامل: $full\n";
+echo 'در تک‌کوتیشن: $full\n';   // جایگزین نمی‌شود!
+
+$email = "info@rayvo.dev";
+echo strlen($email), "\n";                 // 14
+echo strtoupper($email), "\n";             // INFO@RAYVO.DEV
+echo str_contains($email, "@") ? "ایمیل معتبر به نظر می‌رسد" : "@ ندارد", "\n";
+echo str_replace("info", "hello", $email), "\n";
+echo substr($email, 0, 4), "\n";           // info</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>نام کامل: رایبد اکبرلو
+در تک‌کوتیشن: $full\n14
+INFO@RAYVO.DEV
+ایمیل معتبر به نظر می‌رسد
+hello@rayvo.dev
+info</code></pre></div></div><div class="note warn"><div class="note-title">برای متن فارسی</div><p>توابع معمولی مثل <code>strlen</code> و <code>strtoupper</code> بایت‌محورند و برای فارسی دقیق نیستند. برای طول و برش متن فارسی از <code>mb_strlen()</code> و <code>mb_substr()</code> استفاده کن.</p></div></section><section class="lesson" id="ops"><div class="lesson-head"><span class="lesson-num">۵</span><h2>عملگرها</h2></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>نوع</th><th>عملگرها</th><th>مثال</th></tr></thead><tbody><tr><td>حسابی</td><td><code>+ - * / % **</code></td><td><code>10 % 3</code> ← ۱ ، <code>2 ** 3</code> ← ۸</td></tr><tr><td>مقایسه</td><td><code>== === != !== &lt; &gt; &lt;= &gt;=</code></td><td><code>5 === "5"</code> ← false</td></tr><tr><td>منطقی</td><td><code>&amp;&amp; || !</code></td><td><code>$a &gt; 1 &amp;&amp; $b &lt; 5</code></td></tr><tr><td>ادغام null</td><td><code>??</code></td><td><code>$name ?? "مهمان"</code></td></tr><tr><td>انتساب ترکیبی</td><td><code>+= -= .= ++ --</code></td><td><code>$n++</code></td></tr></tbody></table></div><div class="note warn"><div class="note-title">همیشه === بزن</div><p><code>==</code> قبل از مقایسه نوع‌ها را تبدیل می‌کند و غافلگیرت می‌کند (مثلاً <code>0 == "abc"</code> در نسخه‌های قدیمی true بود). <code>===</code> هم مقدار و هم نوع را چک می‌کند و امن‌تر است. در لاراول هم همین را می‌بینی.</p></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+$user = null;
+echo $user ?? "مهمان";      // مهمان
+
+$score = 8;
+$score += 2;                  // ۱۰
+$score++;                     // ۱۱
+echo $score;</code></pre></div></div></section><section class="lesson" id="if"><div class="lesson-head"><span class="lesson-num">۶</span><h2>شرط‌ها: if، match و عملگر سه‌تایی</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+$score = 17;
+
+if ($score &gt;= 18) {
+    echo "عالی";
+} elseif ($score &gt;= 10) {
+    echo "قبول";
+} else {
+    echo "مردود";
+}
+
+// عملگر سه‌تایی: برای شرط‌های کوتاه
+$status = $score &gt;= 10 ? "قبول" : "مردود";
+
+// match: جایگزین مرتب‌تر switch (از PHP 8)
+$label = match (true) {
+    $score &gt;= 18 =&gt; "عالی",
+    $score &gt;= 14 =&gt; "خوب",
+    $score &gt;= 10 =&gt; "متوسط",
+    default      =&gt; "ضعیف",
+};
+echo $label;   // خوب</code></pre></div></div><p><code>match</code> مقدار برمی‌گرداند، سخت‌گیرانه مقایسه می‌کند (مثل ===) و اگر هیچ شرطی جور نشود خطا می‌دهد؛ به همین دلیل از <code>switch</code> امن‌تر است.</p></section><section class="lesson" id="loops"><div class="lesson-head"><span class="lesson-num">۷</span><h2>حلقه‌ها</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+// for: وقتی تعداد تکرار را می‌دانی
+for ($i = 1; $i &lt;= 5; $i++) {
+    echo "$i ";
+}
+echo "\n";
+
+// while: تا وقتی شرط برقرار است
+$n = 3;
+while ($n &gt; 0) {
+    echo "شمارش معکوس: $n\n";
+    $n--;
+}
+
+// break و continue
+for ($i = 1; $i &lt;= 10; $i++) {
+    if ($i % 2 === 0) continue;   // زوج‌ها را رد کن
+    if ($i &gt; 7) break;            // از ۷ بیشتر شد، تمام
+    echo $i, " ";
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>1 2 3 4 5 
+شمارش معکوس: 3
+شمارش معکوس: 2
+شمارش معکوس: 1
+1 3 5 7</code></pre></div></div><div class="note info"><div class="note-title">foreach</div><p>حلقه‌ی اصلی برای آرایه‌هاست و در درس بعد (آرایه و تابع) کامل کار می‌کنیم؛ در لاراول بیشترین استفاده را از آن می‌کنی.</p></div></section><section class="lesson" id="project"><div class="lesson-head"><span class="lesson-num">۸</span><h2>گام پروژه: جدول ضرب و کارنامه</h2></div><p>حالا همه‌ی آموخته‌ها را با هم بزن. فایل <code>mini.php</code> بساز:</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+// ۱) جدول ضرب عدد ۷
+$base = 7;
+for ($i = 1; $i &lt;= 10; $i++) {
+    echo "$base × $i = " . ($base * $i) . "\n";
+}
+
+// ۲) کارنامه
+$math = 16; $physics = 12; $english = 19;
+$avg = ($math + $physics + $english) / 3;
+
+$grade = match (true) {
+    $avg &gt;= 17 =&gt; "ممتاز",
+    $avg &gt;= 14 =&gt; "خیلی خوب",
+    $avg &gt;= 10 =&gt; "قبول",
+    default    =&gt; "مردود",
+};
+
+echo "میانگین: " . round($avg, 2) . " ← $grade\n";</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>7 × 1 = 7
+...
+7 × 10 = 70
+میانگین: 15.67 ← خیلی خوب</code></pre></div></div></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۹</span><h2>اشتباه‌های رایج مبتدی‌ها</h2></div><ol><li>فراموش کردن <code>;</code> آخر دستور (خطای Parse error).</li><li>فراموش کردن <code>$</code> قبل از نام متغیر.</li><li>استفاده از <code>=</code> (انتساب) به‌جای <code>===</code> (مقایسه) داخل <code>if</code>.</li><li>نوشتن متغیر داخل تک‌کوتیشن و تعجب از اینکه جایگزین نمی‌شود.</li><li>ذخیره‌ی فایل با پسوند <code>.html</code> یا <code>.txt</code> و دیدن خود کد در مرورگر؛ پسوند باید <code>.php</code> باشد و از طریق <code>localhost</code> اجرا شود نه دوبار کلیک روی فایل.</li><li>ذخیره‌ی فایل با انکودینگ غیر UTF-8 و به‌هم‌ریختگی فارسی؛ در VS Code پایین صفحه باید UTF-8 باشد.</li></ol><div class="note tip"><div class="note-title">وقتی خطا دیدی</div><p>پیام خطا را بخوان: شماره‌ی خط را می‌گوید. معمولاً مشکل همان خط یا خط قبلش است. اگر گیر کردی، ابتدا <code>var_dump</code> بزن و ببین مقدار واقعاً چیست.</p></div></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱: سن و دسته‌بندی</div><ol><li>سن را در متغیر <code>$age</code> بگذار. اگر زیر ۱۲ بود «کودک»، ۱۲ تا ۱۷ «نوجوان»، ۱۸ تا ۶۴ «بزرگسال» و بالاتر «سالمند» چاپ کن (با <code>match</code>).</li><li>همین را یک‌بار با <code>if / elseif</code> هم بنویس و مقایسه کن کدام خواناتر است.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲: حلقه</div><ol><li>مجموع اعداد ۱ تا ۱۰۰ را با <code>for</code> حساب کن (جواب: ۵۰۵۰).</li><li>همه‌ی مضرب‌های ۳ بین ۱ تا ۵۰ را چاپ کن.</li><li>با دو حلقه‌ی تودرتو یک مثلث ستاره‌ای ۵ ردیفی بکش.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳: تبدیل واحد</div><ol><li>دمای سانتی‌گراد را در متغیر بگذار و معادل فارنهایت را حساب کن (<code>C × 9/5 + 32</code>) و با <code>round</code> گرد کن.</li><li>اگر بالای ۳۵ درجه بود پیام «هوا گرم است» چاپ کن.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://www.php.net/manual/en/langref.php" target="_blank" rel="noopener">PHP Manual: Language Reference</a> — <a href="https://www.php.net/manual/en/control-structures.match.php" target="_blank" rel="noopener">match expression</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="setup-environment.html">→ بخش قبل: راه‌اندازی محیط کار: VS Code، XAMPP، Laragon و phpMyAdmin</a><a href="php-2-arrays-functions.html">بعدی: مبانی PHP ۲: آرایه و تابع ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۲ · درس 5 | صف (Queue) و Job</title><meta name="description" content="صف در لاراول: ساخت Job، dispatch، Worker، tries و backoff، failed_jobs، Bus::chain، ShouldBeUnique، Supervisor و تست با Queue::fake.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۲ · درس 5</span><h1>صف (Queue) و Job</h1><p>کارهای کند را از مسیر پاسخ به کاربر بیرون بکش: ایمیل، پیامک، فاکتور، گزارش. سایت سریع می‌ماند و شکست‌ها قابل‌پیگیری و تکرار می‌شوند.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#why">چرا صف؟</a></li><li><a href="#job">ساخت و ارسال Job</a></li><li><a href="#worker">Worker، شکست و تلاش مجدد</a></li><li><a href="#mail">ایمیل در صف، زنجیره و یکتا</a></li><li><a href="#prod">روی سرور واقعی</a></li><li><a href="#test">تست Job و صف</a></li><li><a href="#reliable">Job قابل‌اعتماد: تلاش دوباره، Backoff و Timeout</a></li><li><a href="#flow">زنجیره و دسته‌ی Jobها (Chain و Batch)</a></li><li><a href="#production-queue">اجرای دائمی Worker: Supervisor، چند صف و Horizon</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="why"><div class="lesson-head"><span class="lesson-num">۱</span><h2>چرا صف؟</h2></div><p>وقتی کاربر سفارش می‌دهد، چند کار لازم است: ایمیل رسید، پیامک، ساخت فاکتور PDF، به‌روزرسانی انبار. اگر همه را همان لحظه (هم‌زمان) انجام بدهی، کاربر ۱۰ ثانیه منتظر می‌ماند و اگر سرویس ایمیل کند باشد، کل سفارش خراب می‌شود. <b>صف (Queue)</b> یعنی کارهای سنگین را در یک «لیست انتظار» می‌گذاریم و یک پروسه‌ی جدا (Worker) آن‌ها را بعداً انجام می‌دهد؛ پاسخ به کاربر فوری است.</p><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>Driver</th><th>کاربرد</th></tr></thead><tbody><tr><td><code>sync</code></td><td>فوری و بدون صف؛ فقط برای تست</td></tr><tr><td><code>database</code></td><td>پیش‌فرض و ساده؛ بدون نصب چیز اضافه (برای شروع عالی است)</td></tr><tr><td><code>redis</code></td><td>سریع‌تر و مناسب ترافیک بالا</td></tr></tbody></table></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code># در .env
+QUEUE_CONNECTION=database
+
+php artisan migrate          # جدول‌های jobs و failed_jobs
+php artisan queue:work       # شروع Worker (باید همیشه روشن باشد)</code></pre></div></div></section><section class="lesson" id="job"><div class="lesson-head"><span class="lesson-num">۲</span><h2>ساخت و ارسال Job</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan make:job SendOrderReport</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Jobs;
+
+use App\Models\Order;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Log;
+use Throwable;
+
+class SendOrderReport implements ShouldQueue
+{
+    use Queueable;
+
+    public int $tries = 3;        // حداکثر ۳ بار تلاش
+    public int $timeout = 60;     // هر تلاش حداکثر ۶۰ ثانیه
+
+    public function __construct(public Order $order) {}
+
+    // فاصله‌ی بین تلاش‌های ناموفق (ثانیه): ۱۰، ۶۰، ۳۰۰
+    public function backoff(): array
+    {
+        return [10, 60, 300];
+    }
+
+    public function handle(): void
+    {
+        // کار سنگین: ساخت گزارش، تماس با سرویس بیرونی، ...
+        Log::info('Report for order '.$this-&gt;order-&gt;id);
+    }
+
+    // بعد از شکست نهایی همه‌ی تلاش‌ها
+    public function failed(Throwable $e): void
+    {
+        Log::error('Report failed: '.$e-&gt;getMessage());
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+use App\Jobs\SendOrderReport;
+
+SendOrderReport::dispatch($order);                                  // به صف برو
+SendOrderReport::dispatch($order)-&gt;delay(now()-&gt;addMinutes(10));    // ۱۰ دقیقه بعد
+SendOrderReport::dispatch($order)-&gt;onQueue('reports');            // صف نام‌دار
+SendOrderReport::dispatch($order)-&gt;afterCommit();                  // بعد از commit تراکنش دیتابیس</code></pre></div></div><div class="note warn"><div class="note-title">afterCommit</div><p>اگر Job را داخل <code>DB::transaction</code> می‌فرستی ولی هنوز commit نشده، Worker ممکن است سفارش را در دیتابیس پیدا نکند. <code>afterCommit()</code> (یا ست‌کردن <code>after_commit</code> در config/queue.php) این مشکل را حل می‌کند.</p></div></section><section class="lesson" id="worker"><div class="lesson-head"><span class="lesson-num">۳</span><h2>Worker، شکست و تلاش مجدد</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan queue:work --tries=3          # اجرای Worker
+php artisan queue:work --queue=reports,default   # اولویت صف‌ها
+php artisan queue:failed                   # فهرست Jobهای شکست‌خورده
+php artisan queue:retry all                # تلاش دوباره برای همه
+php artisan queue:retry &lt;id&gt;
+php artisan queue:flush                    # پاک‌کردن فهرست شکست‌ها
+php artisan queue:restart                  # بعد از هر دیپلوی!</code></pre></div></div><div class="note warn"><div class="note-title">Worker کد را در حافظه نگه می‌دارد</div><p>Worker یک‌بار برنامه را بالا می‌آورد و می‌ماند. اگر کد را عوض کنی، Worker تا ریستارت همان کد قدیمی را اجرا می‌کند. بعد از هر تغییر/دیپلوی <code>queue:restart</code> بزن. اگر پروژه‌ات از <code>composer run dev</code> استفاده می‌کند، در حالت توسعه Listener هم راه می‌افتد.</p></div></section><section class="lesson" id="mail"><div class="lesson-head"><span class="lesson-num">۴</span><h2>ایمیل در صف، زنجیره و یکتا</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+use App\Jobs\ChargeWallet;
+use App\Jobs\CreateInvoice;
+use App\Jobs\SendOrderReport;
+use App\Mail\OrderPaid;
+use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Mail;
+
+// ایمیل در صف
+Mail::to($user)-&gt;queue(new OrderPaid($order));
+
+// زنجیره: به ترتیب؛ اگر یکی شکست خورد بقیه اجرا نمی‌شوند
+Bus::chain([
+    new CreateInvoice($order),
+    new ChargeWallet($order),
+    new SendOrderReport($order),
+])-&gt;dispatch();</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Jobs;
+
+use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Queue\Queueable;
+
+class RebuildSitemap implements ShouldQueue, ShouldBeUnique
+{
+    use Queueable;
+
+    public function handle(): void { /* ... */ }
+}</code></pre></div></div><p><code>ShouldBeUnique</code> باعث می‌شود تا وقتی یک نمونه در صف یا در حال اجراست، نمونه‌ی دوم اضافه نشود.</p></section><section class="lesson" id="prod"><div class="lesson-head"><span class="lesson-num">۵</span><h2>روی سرور واقعی</h2></div><ul><li><b>VPS:</b> Worker را با <b>Supervisor</b> اجرا کن تا اگر کرش کرد دوباره بالا بیاید.</li><li><b>هاست اشتراکی (cPanel):</b> امکان پروسه‌ی دائمی نیست؛ با Cron هر دقیقه: <code>php artisan queue:work --stop-when-empty</code>.</li><li>همیشه <code>failed_jobs</code> را مانیتور کن؛ Job شکست‌خورده یعنی ایمیل/پرداختی که انجام نشده.</li><li>Jobها را «idempotent» بنویس: اگر دوبار اجرا شد، اثرش دوبار نشود (مثلاً قبل از شارژ کیف پول چک کن قبلاً شارژ نشده).</li></ul><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">text</span></div><pre><code>[program:laravel-worker]
+process_name=%(program_name)s_%(process_num)02d
+command=php /var/www/app/artisan queue:work --sleep=3 --tries=3 --max-time=3600
+autostart=true
+autorestart=true
+numprocs=2
+user=www-data
+stdout_logfile=/var/www/app/storage/logs/worker.log
+stopwaitsecs=3600</code></pre></div></div></section><section class="lesson" id="test"><div class="lesson-head"><span class="lesson-num">۶</span><h2>تست Job و صف</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Tests\Feature;
+
+use App\Jobs\SendOrderReport;
+use App\Models\Order;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
+use Tests\TestCase;
+
+class QueueTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_job_is_dispatched(): void
+    {
+        Queue::fake();
+        $order = Order::factory()-&gt;create();
+
+        SendOrderReport::dispatch($order);
+
+        Queue::assertPushed(SendOrderReport::class, fn ($job) =&gt; $job-&gt;order-&gt;is($order));
+    }
+}</code></pre></div></div></section><section class="lesson" id="reliable" data-deep="1"><div class="lesson-head"><span class="lesson-num">۷</span><h2>Job قابل‌اعتماد: تلاش دوباره، Backoff و Timeout</h2></div><p>در دنیای واقعی Jobها شکست می‌خورند: API بیرونی قطع است، دیتابیس قفل است، شبکه پریده. یک Job خوب برای شکست طراحی شده است.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>class SyncInvoiceToAccounting implements ShouldQueue
+{
+    use Queueable;
+
+    public int $tries = 5;                 // حداکثر تعداد تلاش
+    public int $timeout = 60;              // بعد از ۶۰ ثانیه Job کشته شود
+    public array $backoff = [30, 120, 600]; // فاصله‌ی تلاش‌ها
+    public bool $failOnTimeout = true;
+
+    public function __construct(public Invoice $invoice) {}
+
+    public function handle(AccountingApi $api): void
+    {
+        $api-&gt;push($this-&gt;invoice);        // اگر Exception بدهد، دوباره تلاش می‌شود
+    }
+
+    public function failed(\Throwable $e): void
+    {
+        // بعد از آخرین تلاش: به ادمین خبر بده
+        Notification::route('mail', 'admin@example.com')-&gt;notify(new JobFailed($this-&gt;invoice, $e));
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan queue:failed             # فهرست Jobهای شکست‌خورده
+php artisan queue:retry 5            # تلاش دوباره‌ی یک Job با شناسه
+php artisan queue:retry all          # همه
+php artisan queue:forget 5           # حذف یک مورد
+php artisan queue:flush              # پاک‌کردن همه‌ی شکست‌ها</code></pre></div></div><div class="note info"><div class="note-title">Jobهای شکست‌خورده کجا ذخیره می‌شوند؟</div><p>در جدول <code>failed_jobs</code> (مایگریشن آن در لاراول از پیش هست). این جدول حافظه‌ی «چه چیزی از دست رفت» است؛ هر هفته نگاهش کن و با <code>queue:prune-failed</code> قدیمی‌ها را پاک کن.</p></div><h3>جلوگیری از اجرای تکراری</h3><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
+use Illuminate\Queue\Middleware\RateLimited;
+
+class GenerateMonthlyReport implements ShouldQueue, ShouldBeUnique
+{
+    public function __construct(public int $month) {}
+    public function uniqueId(): string { return (string) $this-&gt;month; }   // با همین شناسه فقط یکی در صف
+    public int $uniqueFor = 3600;
+
+    public function middleware(): array
+    {
+        return [
+            new WithoutOverlapping($this-&gt;month),           // دو Job هم‌شناسه هم‌زمان اجرا نشوند
+            // new RateLimited('sms'),                      // محدودیت نرخ (مثلاً سقف پیامک در دقیقه)
+        ];
+    }
+}</code></pre></div></div></section><section class="lesson" id="flow" data-deep="1"><div class="lesson-head"><span class="lesson-num">۸</span><h2>زنجیره و دسته‌ی Jobها (Chain و Batch)</h2></div><p><b>Chain</b>: Jobها پشت سر هم و فقط اگر قبلی موفق بود. <b>Batch</b>: تعداد زیادی Job موازی با گزارش پیشرفت و یک نتیجه‌ی نهایی.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>use Illuminate\Support\Facades\Bus;
+
+// زنجیره: اول رندر فاکتور، بعد ایمیل، بعد ثبت در حسابداری
+Bus::chain([
+    new RenderInvoicePdf($order),
+    new EmailInvoice($order),
+    new SyncInvoiceToAccounting($order),
+])-&gt;catch(function (\Throwable $e) {
+    logger()-&gt;error('invoice chain failed: ' . $e-&gt;getMessage());
+})-&gt;dispatch();</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan make:queue-batches-table
+php artisan migrate</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// دسته: ارسال خبرنامه برای ۱۰ هزار مشترک
+use Illuminate\Bus\Batch;
+
+$jobs = Subscriber::query()-&gt;pluck('id')-&gt;map(fn ($id) =&gt; new SendNewsletterTo($id));
+
+$batch = Bus::batch($jobs)
+    -&gt;name('newsletter-2026-10')
+    -&gt;allowFailures()                         // شکست چند Job کل دسته را متوقف نکند
+    -&gt;then(fn (Batch $b) =&gt; logger()-&gt;info('همه تمام شد'))
+    -&gt;catch(fn (Batch $b, \Throwable $e) =&gt; logger()-&gt;error('یک Job شکست خورد'))
+    -&gt;finally(fn (Batch $b) =&gt; logger()-&gt;info("{$b-&gt;processedJobs()} از {$b-&gt;totalJobs} انجام شد"))
+    -&gt;onQueue('newsletter')
+    -&gt;dispatch();
+
+// بعداً می‌توانی پیشرفت را ببینی
+$batch = Bus::findBatch($batchId);
+$batch-&gt;progress();   // درصد
+$batch-&gt;cancel();     // لغو
+
+// داخل Job دسته‌ای
+public function handle(): void
+{
+    if ($this-&gt;batch()?-&gt;cancelled()) return;
+    // ...
+}</code></pre></div></div><div class="note tip"><div class="note-title">وقتی Batch و Chain را به‌کار ببر</div><p>ارسال انبوه ایمیل/پیامک، ساخت گزارش‌های بزرگ، وارد کردن (Import) فایل اکسل با هزاران ردیف؛ همه نمونه‌های واقعی Batch هستند. کاربر منتظر نمی‌ماند و می‌توانی نوار پیشرفت نشان بدهی.</p></div></section><section class="lesson" id="production-queue" data-deep="1"><div class="lesson-head"><span class="lesson-num">۹</span><h2>اجرای دائمی Worker: Supervisor، چند صف و Horizon</h2></div><p><code>php artisan queue:work</code> در ترمینال با بستن پنجره می‌میرد. روی سرور باید یک «مدیر پردازه» آن را زنده نگه دارد. در لینوکس معمولاً Supervisor.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">ini</span></div><pre><code>; /etc/supervisor/conf.d/shop-worker.conf
+[program:shop-worker]
+process_name=%(program_name)s_%(process_num)02d
+command=php /var/www/shop/artisan queue:work redis --queue=high,default,low --sleep=3 --tries=3 --max-time=3600
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=www-data
+numprocs=2
+redirect_stderr=true
+stdout_logfile=/var/www/shop/storage/logs/worker.log
+stopwaitsecs=3600</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>sudo supervisorctl reread
+sudo supervisorctl update
+sudo supervisorctl start "shop-worker:*"
+sudo supervisorctl status</code></pre></div></div><ul><li><code>--queue=high,default,low</code>: صف‌ها به ترتیب اولویت پردازش می‌شوند؛ ایمیل تأیید را در <code>high</code> و گزارش‌های سنگین را در <code>low</code> بگذار (<code>->onQueue('high')</code>).</li><li><code>--max-time=3600</code>: Worker بعد از یک ساعت خودش خارج می‌شود و Supervisor دوباره بالا می‌آورد؛ نشت حافظه جمع نمی‌شود.</li><li>بعد از هر استقرار: <code>php artisan queue:restart</code> (Worker بعد از اتمام Job فعلی تمیز بسته می‌شود).</li><li>درایور صف: <code>database</code> برای شروع و پروژه‌های کوچک خوب است؛ برای حجم بالا <b>Redis</b> بهتر است.</li><li><b>Horizon</b> داشبورد و مدیریت حرفه‌ای صف روی Redis است (تعداد Workerها، زمان انتظار، شکست‌ها). روی لینوکس/مک کار می‌کند و روی ویندوز به WSL نیاز دارد؛ برای پروژه‌ی جدی ارزشش را دارد.</li></ul><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>composer require laravel/horizon
+php artisan horizon:install
+php artisan horizon           # اجرا؛ داشبورد در /horizon (دسترسی را در Gate محدود کن!)</code></pre></div></div><div class="note warn"><div class="note-title">دسترسی داشبورد</div><p>Horizon به‌صورت پیش‌فرض فقط در محیط local باز است. در <code>HorizonServiceProvider</code> متد <code>gate()</code> را طوری بنویس که فقط ادمین‌ها بتوانند ببینند؛ داشبوردِ باز یعنی نشت داده.</p></div></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۱۰</span><h2>اشتباه‌های رایج</h2></div><ol><li>نزدن <code>queue:work</code> و تعجب از اینکه Job اجرا نمی‌شود.</li><li>فراموش‌کردن <code>queue:restart</code> بعد از تغییر کد.</li><li>فرستادن Job داخل تراکنش بدون <code>afterCommit</code>.</li><li>ریختن آبجکت‌های بزرگ یا غیرقابل‌serialize در Job؛ مدل بفرست (فقط شناسه ذخیره می‌شود).</li><li>Job غیر idempotent و اجرای دوباره‌ی تلاش‌های ناموفق با اثر تکراری.</li><li>نادیده‌گرفتن جدول failed_jobs.</li><li>اجرای Worker بدون Supervisor و بی‌خبرماندن از خاموش‌شدنش.</li><li><code>QUEUE_CONNECTION=sync</code> در پروداکشن؛ صف عملاً کار نمی‌کند و ایمیل‌ها پاسخ را کند می‌کنند.</li><li>گذاشتن مدل کامل و داده‌ی سنگین داخل Job به‌جای شناسه (حجم صف و کهنه‌شدن داده).</li><li>Job غیر Idempotent: اگر دو بار اجرا شود، دو بار مبلغ کسر می‌کند. همیشه فرض کن Job ممکن است تکرار شود.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>Job به نام <code>GenerateInvoicePdf</code> بساز که در لاگ بنویسد «فاکتور ساخته شد»، و پس از ثبت سفارش آن را dispatch کن.</li><li>Worker را اجرا کن و خروجی را در <code>storage/logs/laravel.log</code> ببین.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li>داخل Job عمداً خطا پرت کن، ببین چند بار تلاش می‌شود و بعد در <code>failed_jobs</code> می‌نشیند. خطا را برطرف و <code>queue:retry all</code> بزن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>زنجیره‌ای از سه Job بساز و ترتیب اجرا را در لاگ تایید کن؛ سپس وسط زنجیره خطا بده و ببین بقیه اجرا نمی‌شوند.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۴</div><ol><li>یک Job با <code>tries=4</code> و <code>backoff</code> بنویس که عمداً دو بار Exception بدهد و بار سوم موفق شود؛ رفتارش را در لاگ ببین. سپس یکی بنویس که همیشه خطا دهد و آن را از <code>queue:failed</code> دوباره اجرا کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۵</div><ol><li>ارسال «ایمیل خوش‌آمد به ۵۰۰ کاربر آزمایشی» را با Batch انجام بده و درصد پیشرفت را با <code>$batch->progress()</code> نمایش بده.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۶</div><ol><li>Supervisor را روی یک VPS آزمایشی نصب کن، فایل پیکربندی بالا را بگذار و Worker را بکُش؛ ببین خودش بالا می‌آید.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://laravel.com/docs/13.x/queues" target="_blank" rel="noopener">Queues</a> — <a href="https://laravel.com/docs/13.x/queues#supervisor-configuration" target="_blank" rel="noopener">Supervisor</a> — <a href="https://laravel.com/docs/13.x/mail#queueing-mail" target="_blank" rel="noopener">Mail: Queueing</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="l2-sanctum.html">→ بخش قبل: احراز هویت API با Sanctum</a><a href="l2-events-notifications.html">بعدی: Event، Listener و Notification ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۲ · درس 6 | Event، Listener و Notification</title><meta name="description" content="Event و Listener، Observer مدل، Notification با چند کانال (mail و database) و تست با Event::fake و Notification::fake در لاراول.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۲ · درس 6</span><h1>Event، Listener و Notification</h1><p>کدی که هر اتفاق مهم را با یک خط اعلام می‌کند و کارهای جانبی را به Listenerها می‌سپارد، خواناتر و قابل‌توسعه‌تر است؛ این همان الگویی است که در پروژه‌ی مارکت‌پلیس استفاده می‌کنیم.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#why">چرا Event و Listener؟</a></li><li><a href="#event">ساخت Event و Listener</a></li><li><a href="#observer">Observer: گوش‌دادن به رویدادهای مدل</a></li><li><a href="#notif">Notification: یک پیام، چند کانال</a></li><li><a href="#test">تست Event و Notification</a></li><li><a href="#queued-listeners">Listener صف‌دار و امن در برابر تراکنش</a></li><li><a href="#channels">کانال‌ها: Database، Broadcast و چند کانالی</a></li><li><a href="#design">الگوی طراحی: کی Event، کی Observer، کی مستقیم؟</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="why"><div class="lesson-head"><span class="lesson-num">۱</span><h2>چرا Event و Listener؟</h2></div><p>وقتی سفارش پرداخت می‌شود باید چند کار انجام شود: ایمیل، پیامک، کم‌کردن موجودی، اطلاع به ادمین. اگر همه را داخل یک متد کنترلر بنویسی، کنترلر بزرگ و شکننده می‌شود. با <b>Event</b> فقط اعلام می‌کنی «<code>OrderPaid</code> اتفاق افتاد» و هر <b>Listener</b> مسئول یک کار می‌شود؛ کنترلر نمی‌داند چه کسانی گوش می‌دهند.</p></section><section class="lesson" id="event"><div class="lesson-head"><span class="lesson-num">۲</span><h2>ساخت Event و Listener</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan make:event OrderPaid
+php artisan make:listener SendPaidNotification --event=OrderPaid</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Events;
+
+use App\Models\Order;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
+
+class OrderPaid
+{
+    use Dispatchable, SerializesModels;
+
+    public function __construct(public Order $order) {}
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Listeners;
+
+use App\Events\OrderPaid;
+use App\Notifications\OrderPaidNotification;
+use Illuminate\Contracts\Queue\ShouldQueue;
+
+// ShouldQueue: خود Listener در صف اجرا می‌شود (پاسخ کاربر معطل نمی‌ماند)
+class SendPaidNotification implements ShouldQueue
+{
+    public function handle(OrderPaid $event): void
+    {
+        $event-&gt;order-&gt;user-&gt;notify(new OrderPaidNotification($event-&gt;order));
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+use App\Events\OrderPaid;
+
+// در جای مناسب (مثلاً بعد از تأیید پرداخت)
+OrderPaid::dispatch($order);   // یا event(new OrderPaid($order))</code></pre></div></div><div class="note info"><div class="note-title">کشف خودکار</div><p>در لاراول جدید، Listenerهایی که در متد <code>handle</code> نوع Event را type-hint کرده‌اند، خودکار کشف می‌شوند و نیازی به ثبت دستی نیست. بررسی با <code>php artisan event:list</code>.</p></div></section><section class="lesson" id="observer"><div class="lesson-head"><span class="lesson-num">۳</span><h2>Observer: گوش‌دادن به رویدادهای مدل</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan make:observer OrderObserver --model=Order</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Observers;
+
+use App\Models\Order;
+use Illuminate\Support\Str;
+
+class OrderObserver
+{
+    public function creating(Order $order): void
+    {
+        $order-&gt;number = 'RV-'.Str::upper(Str::random(8));   // شماره‌ی سفارش خودکار
+    }
+
+    public function updated(Order $order): void
+    {
+        if ($order-&gt;wasChanged('status')) {
+            // وضعیت عوض شد؛ مثلاً Event بفرست
+        }
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Models;
+
+use App\Observers\OrderObserver;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
+use Illuminate\Database\Eloquent\Model;
+
+#[ObservedBy([OrderObserver::class])]
+class Order extends Model
+{
+}</code></pre></div></div><div class="note warn"><div class="note-title">Observer یا Event؟</div><p>Observer برای واکنش به «تغییر مدل» (created, updated, deleted). Event برای «اتفاق‌های کسب‌وکار» (سفارش پرداخت شد). کار مهم و پیچیده را در Observer پنهان نکن؛ خواندن کد سخت می‌شود.</p></div></section><section class="lesson" id="notif"><div class="lesson-head"><span class="lesson-num">۴</span><h2>Notification: یک پیام، چند کانال</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan make:notification OrderPaidNotification
+php artisan make:notifications-table &amp;&amp; php artisan migrate   # برای کانال database</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Notifications;
+
+use App\Models\Order;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Notifications\Notification;
+
+class OrderPaidNotification extends Notification implements ShouldQueue
+{
+    use Queueable;
+
+    public function __construct(public Order $order) {}
+
+    public function via(object $notifiable): array
+    {
+        return ['mail', 'database'];   // ایمیل + اعلان داخل سایت
+    }
+
+    public function toMail(object $notifiable): MailMessage
+    {
+        return (new MailMessage)
+            -&gt;subject('پرداخت سفارش شما تایید شد')
+            -&gt;greeting('سلام '.$notifiable-&gt;name)
+            -&gt;line('سفارش شماره‌ی '.$this-&gt;order-&gt;number.' با موفقیت پرداخت شد.')
+            -&gt;action('مشاهده‌ی سفارش', url('/orders/'.$this-&gt;order-&gt;id))
+            -&gt;line('از خرید شما ممنونیم.');
+    }
+
+    public function toArray(object $notifiable): array
+    {
+        return ['order_id' =&gt; $this-&gt;order-&gt;id, 'number' =&gt; $this-&gt;order-&gt;number];
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+// ارسال
+$user-&gt;notify(new OrderPaidNotification($order));
+
+// خواندن اعلان‌های داخل سایت (کانال database)
+$unread = $user-&gt;unreadNotifications;       // خوانده‌نشده‌ها
+$user-&gt;unreadNotifications-&gt;markAsRead();   // علامت خوانده‌شدن</code></pre></div></div><p>برای ارسال پیامک یک «کانال سفارشی» می‌نویسیم؛ جزئیاتش را در درس ایمیل و پیامک می‌بینی.</p></section><section class="lesson" id="test"><div class="lesson-head"><span class="lesson-num">۵</span><h2>تست Event و Notification</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Tests\Feature;
+
+use App\Events\OrderPaid;
+use App\Models\Order;
+use App\Models\User;
+use App\Notifications\OrderPaidNotification;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Notification;
+use Tests\TestCase;
+
+class OrderEventsTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_event_is_dispatched(): void
+    {
+        Event::fake();
+        $order = Order::factory()-&gt;create();
+
+        OrderPaid::dispatch($order);
+
+        Event::assertDispatched(OrderPaid::class);
+    }
+
+    public function test_user_is_notified(): void
+    {
+        Notification::fake();
+        $user = User::factory()-&gt;create();
+        $order = Order::factory()-&gt;create(['user_id' =&gt; $user-&gt;id]);
+
+        $user-&gt;notify(new OrderPaidNotification($order));
+
+        Notification::assertSentTo($user, OrderPaidNotification::class);
+    }
+}</code></pre></div></div></section><section class="lesson" id="queued-listeners" data-deep="1"><div class="lesson-head"><span class="lesson-num">۶</span><h2>Listener صف‌دار و امن در برابر تراکنش</h2></div><p>Listener پیش‌فرض هم‌زمان اجرا می‌شود و پاسخ کاربر را کند می‌کند. کارهای کند (ایمیل، پیامک، تماس با API بیرونی) را با <code>ShouldQueue</code> به صف بفرست.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>namespace App\Listeners;
+
+use App\Events\OrderPlaced;
+use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Queue\InteractsWithQueue;
+
+class SendOrderConfirmation implements ShouldQueue, ShouldHandleEventsAfterCommit
+{
+    use InteractsWithQueue;
+
+    public int $tries = 3;
+    public array $backoff = [10, 60, 300];   // فاصله‌ی تلاش‌های دوباره (ثانیه)
+
+    public function handle(OrderPlaced $event): void
+    {
+        $event-&gt;order-&gt;user-&gt;notify(new \App\Notifications\OrderConfirmed($event-&gt;order));
+    }
+
+    public function failed(OrderPlaced $event, \Throwable $e): void
+    {
+        logger()-&gt;error('order confirmation failed', ['order' =&gt; $event-&gt;order-&gt;id, 'error' =&gt; $e-&gt;getMessage()]);
+    }
+}</code></pre></div></div><div class="note warn"><div class="note-title">چرا ShouldHandleEventsAfterCommit؟</div><p>اگر Event را داخل <code>DB::transaction</code> بفرستی و Listener صف‌دار فوراً اجرا شود، ممکن است سفارش هنوز Commit نشده باشد و Worker آن را پیدا نکند (<code>ModelNotFoundException</code>). این Interface می‌گوید «بعد از Commit اجرا شو». برای Jobها هم <code>dispatch(...)->afterCommit()</code> همین کار را می‌کند.</p></div><p>در لاراول ۱۲ لیسنرها خودکار کشف می‌شوند: متد <code>handle</code> با Type-hint نوع Event کافی است و لازم نیست در <code>AppServiceProvider</code> ثبت‌شان کنی. فهرست را با <code>php artisan event:list</code> ببین.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// جلوگیری از اجرا، بر اساس شرط
+public function shouldQueue(OrderPlaced $event): bool
+{
+    return $event-&gt;order-&gt;total &gt; 0;
+}
+
+// Subscriber: چند Listener یک موضوع در یک کلاس
+use Illuminate\Events\Dispatcher;
+class OrderEventSubscriber
+{
+    public function subscribe(Dispatcher $events): array
+    {
+        return [
+            OrderPlaced::class    =&gt; 'onPlaced',
+            OrderCancelled::class =&gt; 'onCancelled',
+        ];
+    }
+    public function onPlaced(OrderPlaced $e): void { /* ... */ }
+    public function onCancelled(OrderCancelled $e): void { /* ... */ }
+}</code></pre></div></div></section><section class="lesson" id="channels" data-deep="1"><div class="lesson-head"><span class="lesson-num">۷</span><h2>کانال‌ها: Database، Broadcast و چند کانالی</h2></div><p>یک Notification می‌تواند هم‌زمان با چند کانال بروید. کانال <code>database</code> برای «زنگوله‌ی اعلان» داخل سایت عالی است.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan make:notifications-table
+php artisan migrate
+php artisan make:notification OrderConfirmed</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>class OrderConfirmed extends Notification implements ShouldQueue
+{
+    use Queueable;
+
+    public function __construct(public Order $order) {}
+
+    public function via(object $notifiable): array
+    {
+        // ترجیح کاربر را بخوان: همه ایمیل نمی‌خواهند
+        return $notifiable-&gt;wants_email ? ['database', 'mail'] : ['database'];
+    }
+
+    public function toMail(object $notifiable): MailMessage
+    {
+        return (new MailMessage)
+            -&gt;subject('سفارش شما ثبت شد')
+            -&gt;greeting('سلام ' . $notifiable-&gt;name)
+            -&gt;line('سفارش شماره‌ی ' . $this-&gt;order-&gt;id . ' با موفقیت ثبت شد.')
+            -&gt;action('مشاهده‌ی سفارش', route('orders.show', $this-&gt;order));
+    }
+
+    public function toArray(object $notifiable): array
+    {
+        return ['order_id' =&gt; $this-&gt;order-&gt;id, 'text' =&gt; 'سفارش ' . $this-&gt;order-&gt;id . ' ثبت شد'];
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// نمایش اعلان‌ها
+$user-&gt;unreadNotifications;                 // خوانده‌نشده‌ها
+$user-&gt;notifications()-&gt;latest()-&gt;paginate(10);
+$user-&gt;unreadNotifications-&gt;markAsRead();   // همه را خوانده کن
+$request-&gt;user()-&gt;notifications()-&gt;whereKey($id)-&gt;first()?-&gt;markAsRead();
+
+// ارسال بدون کاربر (مثلاً به ایمیل یک مهمان)
+Notification::route('mail', 'guest@example.com')-&gt;notify(new OrderConfirmed($order));</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">blade</span></div><pre><code>{{-- زنگوله --}}
+&lt;a href="{{ route('notifications.index') }}"&gt;
+    اعلان‌ها
+    @if(auth()-&gt;user()-&gt;unreadNotifications()-&gt;count())
+        &lt;span class="badge"&gt;{{ auth()-&gt;user()-&gt;unreadNotifications()-&gt;count() }}&lt;/span&gt;
+    @endif
+&lt;/a&gt;</code></pre></div></div><div class="note tip"><div class="note-title">نکته‌ی کارایی</div><p>شمارش اعلان‌ها در Layout روی هر صفحه یک کوئری اضافه است. اگر ترافیک بالا شد، شمارش را کش کن یا با View Composer یک بار محاسبه کن.</p></div></section><section class="lesson" id="design" data-deep="1"><div class="lesson-head"><span class="lesson-num">۸</span><h2>الگوی طراحی: کی Event، کی Observer، کی مستقیم؟</h2></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>وضعیت</th><th>انتخاب</th><th>دلیل</th></tr></thead><tbody><tr><td>اتفاقی که چند کار مستقل بعدش لازم دارد (ایمیل + انبار + آمار)</td><td>Event + چند Listener</td><td>اضافه‌کردن کار جدید بدون دست‌زدن به کد قبلی</td></tr><tr><td>واکنش به ساخت/تغییر خود مدل (slug، لاگ، پاک‌کردن کش)</td><td>Observer</td><td>نزدیک مدل و بدون نیاز به فراخوانی دستی</td></tr><tr><td>کاری که باید حتماً هم‌زمان و با خطای فوری انجام شود</td><td>فراخوانی مستقیم Service</td><td>Event منطق را پنهان می‌کند؛ برای قلب منطق مالی شفافیت بهتر است</td></tr><tr><td>اطلاع‌رسانی به کاربر</td><td>Notification</td><td>کانال‌های متعدد، صف و قالب یکپارچه</td></tr></tbody></table></div><ul><li>Event را <b>به‌صورت گذشته</b> نام‌گذاری کن: <code>OrderPlaced</code>، نه <code>PlaceOrder</code>. یعنی «اتفاق افتاده»، نه «دستور».</li><li>فقط داده‌ی لازم را در Event بگذار (مدل یا شناسه). اگر Listener صف‌دار است، مدل‌ها با <code>SerializesModels</code> از دیتابیس دوباره خوانده می‌شوند.</li><li>منطق مالی حساس (کم‌کردن موجودی، ثبت تراکنش) را داخل Listener نگذار؛ در Service و داخل تراکنش انجام بده و فقط «اعلان‌ها و جانبی‌ها» را به Event بسپار.</li><li>برای دیباگ: <code>Event::fake()</code> در تست‌ها و <code>php artisan event:list</code> برای دیدن اتصال‌ها.</li></ul><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// تست: بعد از ثبت سفارش، Event فرستاده شده و Notification رفته؟
+Event::fake([OrderPlaced::class]);
+$this-&gt;actingAs($user)-&gt;post('/checkout', $data)-&gt;assertRedirect();
+Event::assertDispatched(OrderPlaced::class, fn ($e) =&gt; $e-&gt;order-&gt;user_id === $user-&gt;id);
+
+Notification::fake();
+$user-&gt;notify(new OrderConfirmed($order));
+Notification::assertSentTo($user, OrderConfirmed::class);</code></pre></div></div></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۹</span><h2>اشتباه‌های رایج</h2></div><ol><li>ریختن همه‌ی منطق داخل یک Listener بزرگ؛ هر Listener یک کار.</li><li>فراموش‌کردن <code>ShouldQueue</code> و کند شدن پاسخ کاربر.</li><li>ارسال Event قبل از commit تراکنش (Listener داده‌ی ذخیره‌نشده را نمی‌بیند).</li><li>وابستگی پنهان به ترتیب اجرای Listenerها.</li><li>عدم تست؛ با <code>Event::fake()</code> می‌توانی ساده تست کنی.</li><li>فرستادن Event داخل تراکنش و اجرای Listener صف‌دار قبل از Commit (راه‌حل: <code>ShouldHandleEventsAfterCommit</code> یا <code>afterCommit()</code>).</li><li>گذاشتن منطق اصلی کسب‌وکار (مثل کم‌کردن موجودی) فقط داخل Listener صف‌دار؛ اگر Worker خاموش باشد، هیچ‌وقت انجام نمی‌شود.</li><li>فراموش‌کردن جدول <code>notifications</code> (خطای جدول موجود نیست).</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>رویداد <code>UserRegistered</code> بساز و Listener‌ای که ایمیل خوش‌آمد بفرستد؛ سپس با <code>Event::fake</code> تست کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li>Observer برای Product بنویس که هنگام <code>creating</code> اسلاگ را از عنوان بسازد.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>صفحه‌ی «اعلان‌های من» بساز که اعلان‌های database را نشان دهد و با کلیک خوانده‌شده کند.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۴</div><ol><li>Event <code>OrderPlaced</code> بساز و سه Listener صف‌دار برایش بنویس: ایمیل تأیید، کم‌کردن موجودی (در پروژه‌ی فروشگاه)، و ثبت لاگ.</li><li>کانال database را اضافه کن و صفحه‌ی «اعلان‌های من» با دکمه‌ی «خوانده شد» بساز.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۵</div><ol><li>یک Subscriber برای رویدادهای سفارش بنویس و با <code>event:list</code> ثبت‌شدنش را ببین؛ سپس یک تست با <code>Event::fake</code> برایش بنویس.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://laravel.com/docs/13.x/events" target="_blank" rel="noopener">Events</a> — <a href="https://laravel.com/docs/13.x/notifications" target="_blank" rel="noopener">Notifications</a> — <a href="https://laravel.com/docs/13.x/eloquent#observers" target="_blank" rel="noopener">Eloquent Observers</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="l2-queues.html">→ بخش قبل: صف (Queue) و Job</a><a href="l2-mail-sms.html">بعدی: ایمیل و پیامک ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

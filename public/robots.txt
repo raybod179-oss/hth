@@ -1,0 +1,4 @@
+User-agent: *
+Disallow: /lessons/
+Disallow: /downloads/
+Disallow: /api/

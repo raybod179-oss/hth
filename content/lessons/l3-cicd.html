@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۳ · درس 8 | CI/CD با GitHub Actions</title><meta name="description" content="CI/CD برای لاراول: GitHub Actions با تست، Pint، Larastan، composer audit، ماتریس نسخه‌ی PHP، استقرار خودکار با SSH، Secrets و Branch Protection.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۳ · درس 8</span><h1>CI/CD با GitHub Actions</h1><p>با CI/CD هر تغییر قبل از ورود به پروژه تست می‌شود و انتشار با یک Merge انجام می‌شود. روشی که تیم‌های حرفه‌ای استفاده می‌کنند و در رزومه تو را متمایز می‌کند.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#what">CI و CD یعنی چه؟</a></li><li><a href="#ci">گردش‌کار CI: تست، سبک کد و امنیت</a></li><li><a href="#tools">ابزارهای کیفیت: Pint و Larastan</a></li><li><a href="#cd">استقرار خودکار با SSH</a></li><li><a href="#badge">نشان وضعیت و گزارش‌ها</a></li><li><a href="#flow">جریان کار روزانه</a></li><li><a href="#matrix">CI حرفه‌ای: دیتابیس واقعی، ماتریس نسخه و کش</a></li><li><a href="#secrets">Secret، محیط‌ها و محافظت از شاخه‌ی اصلی</a></li><li><a href="#deploy-flow">استقرار خودکار با SSH و اسکریپت امن</a></li><li><a href="#rollback">بازگشت (Rollback)، هشدار و کنترل کیفیت</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="what"><div class="lesson-head"><span class="lesson-num">۱</span><h2>CI و CD یعنی چه؟</h2></div><p><b>CI (یکپارچه‌سازی پیوسته):</b> با هر push یا Pull Request، تست‌ها و بررسی‌های کیفیت خودکار اجرا می‌شود؛ اگر چیزی خراب بود، قبل از ورود به شاخه‌ی اصلی می‌فهمی. <b>CD (تحویل/استقرار پیوسته):</b> بعد از سبزشدن CI، نسخه خودکار روی سرور منتشر می‌شود. نتیجه: دیپلوی کم‌ترس و بدون «یادم رفت تست بزنم».</p><div class="note info"><div class="note-title">ابزار</div><p>در این درس از <b>GitHub Actions</b> استفاده می‌کنیم. اگر دسترسی به GitHub برایت محدود است، همین ایده با GitLab CI یا اجرای دستی اسکریپت دیپلوی ممکن است؛ سینتکس فرق می‌کند ولی مراحل یکی است.</p></div></section><section class="lesson" id="ci"><div class="lesson-head"><span class="lesson-num">۲</span><h2>گردش‌کار CI: تست، سبک کد و امنیت</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">yaml</span></div><pre><code># .github/workflows/ci.yml
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.3', '8.4']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, intl, pdo_sqlite, bcmath, zip
+          coverage: none
+
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Prepare app
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Code style (Pint)
+        run: ./vendor/bin/pint --test
+
+      - name: Static analysis
+        run: ./vendor/bin/phpstan analyse --memory-limit=1G
+
+      - name: Tests
+        run: php artisan test
+
+      - name: Dependency audit
+        run: composer audit</code></pre></div></div><div class="note tip"><div class="note-title">تست روی SQLite</div><p>تست‌ها معمولاً روی SQLite در حافظه اجرا می‌شوند (تنظیم در <code>phpunit.xml</code>) و نیازی به سرویس دیتابیس در CI نیست. اگر تست‌هایت MySQL واقعی می‌خواهند، در job یک <code>services: mysql</code> اضافه کن.</p></div></section><section class="lesson" id="tools"><div class="lesson-head"><span class="lesson-num">۳</span><h2>ابزارهای کیفیت: Pint و Larastan</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>composer require laravel/pint --dev           # در پروژه‌های جدید معمولاً هست
+composer require larastan/larastan --dev
+
+./vendor/bin/pint                # اصلاح خودکار سبک کد
+./vendor/bin/pint --test         # فقط بررسی (برای CI)</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">text</span></div><pre><code># phpstan.neon
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    paths:
+        - app/
+    level: 5</code></pre></div></div><p>با <code>level: 5</code> شروع کن و کم‌کم بالا ببر. Larastan خطاهایی مثل فراخوانی متد ناموجود یا نوع اشتباه را قبل از اجرا می‌گیرد.</p></section><section class="lesson" id="cd"><div class="lesson-head"><span class="lesson-num">۴</span><h2>استقرار خودکار با SSH</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">yaml</span></div><pre><code># .github/workflows/deploy.yml
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment: production        # می‌توانی در GitHub «تایید دستی» برای این محیط بگذاری
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: bash /var/www/myshop/deploy.sh</code></pre></div></div><ul><li>اسرار (<code>SSH_HOST</code>، <code>SSH_USER</code>، <code>SSH_KEY</code>) را در <b>Settings ← Secrets and variables ← Actions</b> بگذار؛ هرگز در فایل‌های ریپو.</li><li>برای دیپلوی یک کاربر و کلید SSH <b>جدا</b> با حداقل دسترسی بساز (فقط اجرای اسکریپت دیپلوی).</li><li>در <b>Branch Protection</b> شاخه‌ی <code>main</code> را قفل کن: بدون CI سبز و Pull Request امکان ادغام نباشد.</li><li>همان <code>deploy.sh</code> درس قبل را اینجا صدا می‌زنیم؛ یک منطق دیپلوی در یک جا.</li></ul><div class="note warn"><div class="note-title">Action از منابع ناشناس</div><p>هر Action شخص ثالث کد روی ماشین CI اجرا می‌کند. فقط از منابع معتبر و پرکاربرد استفاده کن و نسخه را ثابت نگه دار؛ در پروژه‌های حساس به‌جای Action، دستور <code>ssh</code> را مستقیم در مرحله‌ی <code>run</code> بنویس.</p></div></section><section class="lesson" id="badge"><div class="lesson-head"><span class="lesson-num">۵</span><h2>نشان وضعیت و گزارش‌ها</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">markdown</span></div><pre><code>![CI](https://github.com/USERNAME/REPO/actions/workflows/ci.yml/badge.svg)</code></pre></div></div><p>نشان سبز CI بالای README پروژه‌ات به کارفرما می‌گوید تست دارد و جدی نوشته شده است.</p></section><section class="lesson" id="flow"><div class="lesson-head"><span class="lesson-num">۶</span><h2>جریان کار روزانه</h2></div><ol><li>شاخه‌ی <code>feature/...</code> بساز و کد و تست بنویس.</li><li>Push کن و Pull Request بزن؛ CI اجرا می‌شود.</li><li>اگر قرمز بود، همان‌جا درست کن؛ سبز شد، ادغام کن.</li><li>بعد از ادغام در <code>main</code>، CI و سپس Deploy خودکار اجرا می‌شود.</li><li>اگر مشکلی پیش آمد، Revert کن (<code>git revert</code>) و دوباره Push کن.</li></ol></section><section class="lesson" id="matrix" data-deep="1"><div class="lesson-head"><span class="lesson-num">۷</span><h2>CI حرفه‌ای: دیتابیس واقعی، ماتریس نسخه و کش</h2></div><p>تست روی SQLite حافظه‌ای سریع است، ولی خیلی از باگ‌ها فقط روی MySQL واقعی پیدا می‌شوند (collation، ایندکس یکتا، تراکنش). در GitHub Actions می‌توانی MySQL را به‌عنوان سرویس بالا بیاوری و هم‌زمان چند نسخه‌ی PHP را تست کنی.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">yaml</span></div><pre><code># .github/workflows/ci.yml
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.3", "8.4"]
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: testing
+          MYSQL_ROOT_PASSWORD: secret
+        ports: ["3306:3306"]
+        options: &gt;-
+          --health-cmd="mysqladmin ping -h 127.0.0.1"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, intl, pdo_mysql, bcmath
+          coverage: none
+
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ matrix.php }}-
+
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: cp .env.example .env &amp;&amp; php artisan key:generate
+
+      - name: Style (Pint)
+        run: ./vendor/bin/pint --test
+
+      - name: Tests
+        env:
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: testing
+          DB_USERNAME: root
+          DB_PASSWORD: secret
+        run: php artisan test --parallel</code></pre></div></div><ul><li><code>concurrency</code>: اگر پشت‌سرهم Push کردی، اجرای قدیمی لغو می‌شود و وقت هدر نمی‌رود.</li><li><code>matrix</code>: همان تست‌ها روی هر دو نسخه‌ی PHP اجرا می‌شود؛ اگر یکی شکست خورد، خطای سازگاری را زود می‌فهمی.</li><li><code>--parallel</code> نیاز به پکیج <code>brianium/paratest</code> دارد؛ اگر ندارید حذفش کن یا آن را به‌صورت dev نصب کن.</li><li><code>pint --test</code> فقط بررسی می‌کند و فایل را عوض نمی‌کند؛ اگر استایل خراب باشد Job قرمز می‌شود.</li></ul><div class="note info"><div class="note-title">اگر GitHub برایت در دسترس نیست</div><p>دسترسی به GitHub و Actions برای بعضی کاربران ایران محدود یا ناپایدار است. همان منطق (نصب → تست → ساخت → استقرار) را می‌شود با GitLab CI، Gitea/Forgejo با Runner خودت، یا حتی یک اسکریپت <code>deploy.sh</code> روی سرور اجرا کرد. مفهوم مهم‌تر از ابزار است.</p></div></section><section class="lesson" id="secrets" data-deep="1"><div class="lesson-head"><span class="lesson-num">۸</span><h2>Secret، محیط‌ها و محافظت از شاخه‌ی اصلی</h2></div><p>هیچ‌وقت رمز یا کلید SSH را داخل مخزن نگذار. GitHub سه جا برای نگه‌داری آن‌ها دارد:</p><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>محل</th><th>کاربرد</th></tr></thead><tbody><tr><td>Repository secrets</td><td>مقدارهای مشترک همه‌ی Jobها (مثلاً توکن اعلان تلگرام)</td></tr><tr><td>Environment secrets</td><td>مقدارهای مخصوص <code>staging</code> یا <code>production</code>؛ می‌شود برای Production «تأیید دستی» خواست</td></tr><tr><td>Variables</td><td>مقدارهای غیرمحرمانه مثل آدرس سایت</td></tr></tbody></table></div><ol><li>در Settings ← Environments دو محیط <code>staging</code> و <code>production</code> بساز؛ برای production گزینه‌ی Required reviewers را روشن کن تا هر استقرار به تأیید تو نیاز داشته باشد.</li><li>در Settings ← Branches برای <code>main</code> یک Branch protection بگذار: «Require a pull request» و «Require status checks to pass» (Job تست را انتخاب کن). حالا کد خراب مستقیم وارد main نمی‌شود.</li><li>برای SSH یک کلید <b>جدا و فقط برای استقرار</b> بساز: <code>ssh-keygen -t ed25519 -f deploy_key -C "github-deploy"</code>. کلید عمومی را در <code>~/.ssh/authorized_keys</code> سرور بگذار و کلید خصوصی را در Secret به نام <code>SSH_KEY</code> ذخیره کن.</li></ol><div class="note warn"><div class="note-title">اگر Secret لو رفت</div><p>فوراً آن را در GitHub حذف و کلید/رمز را در سرور باطل کن و نسخه‌ی تازه بساز. Secretها در لاگ‌ها ماسک می‌شوند، ولی هرگز آن‌ها را <code>echo</code> نکن.</p></div></section><section class="lesson" id="deploy-flow" data-deep="1"><div class="lesson-head"><span class="lesson-num">۹</span><h2>استقرار خودکار با SSH و اسکریپت امن</h2></div><p>بعد از موفق بودن تست‌ها روی main، یک Job دوم سرور را به‌روز می‌کند. منطق اصلی در یک اسکریپت روی سرور است تا هم دستی و هم از CI قابل اجرا باشد.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">yaml</span></div><pre><code>  deploy:
+    needs: tests
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Prepare SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_KEY }}" &gt; ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.SSH_HOST }}" &gt;&gt; ~/.ssh/known_hosts
+
+      - name: Deploy
+        run: ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} 'bash /var/www/shop/deploy.sh'</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>#!/usr/bin/env bash
+# /var/www/shop/deploy.sh
+set -euo pipefail
+cd /var/www/shop
+
+php artisan down --retry=60 --refresh=15
+trap 'php artisan up' EXIT        # حتی اگر خطا شد، سایت از حالت تعمیر بیرون بیاید
+
+git fetch --all --prune
+git reset --hard origin/main
+
+composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+npm ci &amp;&amp; npm run build
+
+php artisan migrate --force
+php artisan optimize
+php artisan queue:restart
+echo "Deployed: $(git rev-parse --short HEAD)"</code></pre></div></div><div class="note tip"><div class="note-title">خطاگیری</div><p><code>set -euo pipefail</code> یعنی با اولین خطا اسکریپت متوقف شود (نه اینکه ادامه بدهد و سایت نیمه‌کاره بماند). <code>trap</code> هم تضمین می‌کند سایت در حالت تعمیر باقی نماند.</p></div><p>ایراد این روش: بین <code>down</code> و <code>up</code> چند ثانیه سایت در دسترس نیست. برای پروژه‌های بزرگ‌تر از ساختار «release» استفاده می‌کنند.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code># ساختار بدون وقفه (Zero-downtime)
+/var/www/shop/
+  releases/20261019-1030/    ← هر استقرار یک پوشه‌ی جدید
+  releases/20261019-1500/
+  shared/.env  shared/storage/   ← چیزهایی که بین releaseها مشترک است
+  current -&gt; releases/20261019-1500   ← لینک نمادین؛ Nginx به current/public اشاره می‌کند
+
+# جابه‌جایی نسخه فقط عوض‌کردن یک لینک است (تقریباً لحظه‌ای)
+ln -sfn /var/www/shop/releases/20261019-1500 /var/www/shop/current
+# برگشت به نسخه‌ی قبل (Rollback)
+ln -sfn /var/www/shop/releases/20261019-1030 /var/www/shop/current
+php artisan queue:restart</code></pre></div></div></section><section class="lesson" id="rollback" data-deep="1"><div class="lesson-head"><span class="lesson-num">۱۰</span><h2>بازگشت (Rollback)، هشدار و کنترل کیفیت</h2></div><ul><li><b>Migration را رو به عقب‌سازگار بنویس:</b> ستونِ جدید را اول <code>nullable</code> اضافه کن و کد جدید را بیاور؛ حذف ستون قدیمی را در استقرار بعدی انجام بده. این‌طور بازگشت به کد قدیمی امن می‌ماند.</li><li><b>قبل از migrate بکاپ بگیر</b> (دستور <code>mysqldump</code> را در همان اسکریپت استقرار بگذار).</li><li><b>هشدار:</b> یک مرحله‌ی آخر که در صورت شکست استقرار، پیام تلگرام یا ایمیل بفرستد (<code>if: failure()</code>).</li><li><b>بررسی بعد از استقرار (Smoke test):</b> مثلاً <code>curl -fsS https://example.com/up</code>؛ لاراول مسیر سلامت <code>/up</code> را به‌صورت پیش‌فرض دارد.</li><li><b>برچسب نسخه:</b> بعد از استقرار موفق، یک Tag مثل <code>v1.4.0</code> بزن تا همیشه بدانی چه چیزی روی سرور است.</li></ul><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">yaml</span></div><pre><code>      - name: Smoke test
+        run: curl -fsS --retry 5 --retry-delay 5 https://example.com/up
+
+      - name: Notify on failure
+        if: failure()
+        run: &gt;
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage"
+          -d chat_id="${{ secrets.TG_CHAT }}"
+          -d text="❌ Deploy failed: ${{ github.repository }} @ ${{ github.sha }}"</code></pre></div></div></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۱۱</span><h2>اشتباه‌های رایج</h2></div><ol><li>قرار دادن اسرار در فایل workflow یا لاگ‌ها.</li><li>تست‌هایی که فقط روی سیستم خودت پاس می‌شوند (به ترتیب یا داده‌ی محلی وابسته‌اند).</li><li>نداشتن Branch Protection و ادغام مستقیم کد قرمز.</li><li>دیپلوی خودکار بدون راه بازگشت و بدون بکاپ قبل از migrate.</li><li>نادیده‌گرفتن هشدار <code>composer audit</code>.</li><li>CI خیلی کند؛ کش و موازی‌سازی را رعایت کن.</li><li>گذاشتن کلید SSH یا رمز در مخزن به‌جای Secret.</li><li>استقرار از شاخه‌ی اشتباه یا بدون اجرای تست (نبودن <code>needs: tests</code>).</li><li>اجرای <code>migrate</code> مخرب (حذف ستون) هم‌زمان با کد جدید و غیرممکن‌شدن بازگشت.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>Pint و Larastan را به پروژه اضافه کن و فایل CI را بنویس؛ یک تست را عمداً خراب کن و ببین Action قرمز می‌شود.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li>Branch Protection را روی <code>main</code> فعال کن و یک Pull Request واقعی بزن.</li><li>نشان CI را به README پروژه‌ات اضافه کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>اگر سرور داری، Deploy خودکار را با Secretها راه بینداز؛ سپس یک تغییر کوچک را فقط با Merge منتشر کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۴</div><ol><li>یک Workflow برای مخزنت بنویس که با هر Pull Request تست و Pint را اجرا کند و برای main قانون «بدون تست سبز merge نشود» بگذار.</li><li>عمداً یک تست را خراب کن و ببین Job قرمز می‌شود و merge بسته می‌شود.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۵</div><ol><li>اسکریپت <code>deploy.sh</code> را روی یک VPS یا سرور آزمایشی بگذار و یک بار دستی اجرا کن؛ سپس ساختار <code>releases/current</code> را پیاده کن و یک Rollback امتحان کن.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://docs.github.com/actions" target="_blank" rel="noopener">GitHub Actions Docs</a> — <a href="https://github.com/shivammathur/setup-php" target="_blank" rel="noopener">setup-php</a> — <a href="https://github.com/larastan/larastan" target="_blank" rel="noopener">Larastan</a> — <a href="https://laravel.com/docs/13.x/pint" target="_blank" rel="noopener">Laravel Pint</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="l3-deploy.html">→ بخش قبل: دیپلوی روی هاست و VPS</a><a href="l3-advanced-security.html">بعدی: امنیت پیشرفته ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

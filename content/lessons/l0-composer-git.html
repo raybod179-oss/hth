@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۰ · درس ۷ | Composer و Git در عمل</title><meta name="description" content="نصب و کار با Composer، autoload، فایل‌های composer.json/lock، Git، شاخه‌ها، .gitignore و GitHub؛ دو ابزاری که هر پروژه‌ی لاراول با آن‌ها شروع می‌شود.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۰ · درس ۷</span><h1>Composer و Git در عمل</h1><p>لاراول بدون Composer نصب نمی‌شود و بدون Git هیچ پروژه‌ی جدی‌ای نگه‌داری نمی‌شود. این درس کوتاه، دقیقاً همان کارهایی را نشانت می‌دهد که هر روز انجام می‌دهی.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#composer">Composer چیست؟</a></li><li><a href="#json">composer.json، composer.lock و vendor</a></li><li><a href="#autoload">Autoload و PSR-4</a></li><li><a href="#git">Git: دوربین زمان برای کدهایت</a></li><li><a href="#ignore">.gitignore و خطر .env</a></li><li><a href="#branch">شاخه (Branch) و ادغام</a></li><li><a href="#github">GitHub: ذخیره‌ی ابری و پورتفولیو</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="composer"><div class="lesson-head"><span class="lesson-num">۱</span><h2>Composer چیست؟</h2></div><p>Composer «مدیر بسته‌های PHP» است؛ مثل <code>npm</code> در دنیای جاوااسکریپت. به‌جای اینکه کتابخانه‌ها را دستی دانلود و کپی کنی، یک دستور می‌زنی و Composer آن‌ها (و وابستگی‌هایشان) را نصب می‌کند. خود لاراول هم با Composer نصب می‌شود.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>composer --version
+# اگر نصب نیست: از getcomposer.org نصب‌کننده‌ی ویندوز را اجرا کن و ترمینال را از نو باز کن
+
+composer create-project laravel/laravel my-app   # ساخت پروژه‌ی لاراول
+cd my-app</code></pre></div></div></section><section class="lesson" id="json"><div class="lesson-head"><span class="lesson-num">۲</span><h2>composer.json، composer.lock و vendor</h2></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>فایل/پوشه</th><th>نقش</th><th>در گیت؟</th></tr></thead><tbody><tr><td><code>composer.json</code></td><td>فهرست بسته‌های موردنیاز و تنظیمات (دستی/با دستور)</td><td>بله</td></tr><tr><td><code>composer.lock</code></td><td>نسخه‌ی دقیقِ نصب‌شده؛ برای اینکه همه‌ی تیم نسخه‌ی یکسان داشته باشند</td><td>بله</td></tr><tr><td><code>vendor/</code></td><td>خود کدِ بسته‌ها؛ با <code>composer install</code> دوباره ساخته می‌شود</td><td>نه (در .gitignore)</td></tr></tbody></table></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>composer require nesbot/carbon          # نصب یک بسته
+composer require phpunit/phpunit --dev   # فقط برای توسعه
+composer remove nesbot/carbon          # حذف
+composer install                       # نصب همه از روی lock (بعد از clone)
+composer update                        # به‌روزرسانی طبق محدوده‌ی نسخه</code></pre></div></div><div class="note warn"><div class="note-title">install یا update؟</div><p>روی پروژه‌ی موجود (بعد از clone) <b>install</b> بزن. <b>update</b> نسخه‌ها را عوض می‌کند و ممکن است چیزی را خراب کند؛ آگاهانه و روی شاخه‌ی جدا انجامش بده.</p></div></section><section class="lesson" id="autoload"><div class="lesson-head"><span class="lesson-num">۳</span><h2>Autoload و PSR-4</h2></div><p>Composer یک فایل <code>vendor/autoload.php</code> می‌سازد. با یک <code>require</code> همه‌ی کلاس‌ها بدون <code>require</code> دستی لود می‌شوند. قاعده‌ی PSR-4 می‌گوید «نام namespace = مسیر پوشه».</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">json</span></div><pre><code>{
+    "autoload": {
+        "psr-4": { "App\\": "app/" }
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+// app/Services/Greeter.php
+namespace App\Services;
+
+class Greeter
+{
+    public function hello(string $name): string
+    {
+        return "سلام $name";
+    }
+}
+
+// index.php
+require __DIR__ . "/vendor/autoload.php";
+
+use App\Services\Greeter;
+
+echo (new Greeter())-&gt;hello("Rayvo");</code></pre></div></div><p>بعد از اضافه‌کردن یک پوشه‌ی جدید به autoload یک‌بار <code>composer dump-autoload</code> بزن. این همان سازوکاری است که <code>App\Models\User</code> را در لاراول پیدا می‌کند.</p></section><section class="lesson" id="git"><div class="lesson-head"><span class="lesson-num">۴</span><h2>Git: دوربین زمان برای کدهایت</h2></div><p>Git تاریخچه‌ی تغییرات پروژه را نگه می‌دارد. هر <b>commit</b> یک عکس از کل پروژه است که هر وقت بخواهی به آن برمی‌گردی. بدون Git یک اشتباه ساده می‌تواند ساعت‌ها کارت را بسوزاند.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>git config --global user.name  "Your Name"
+git config --global user.email "you@example.com"
+
+git init                      # شروع ردگیری پروژه
+git status                    # چه چیزی عوض شده؟
+git add .                     # همه‌ی تغییرات را برای commit آماده کن
+git commit -m "feat: add product list page"
+git log --oneline             # تاریخچه‌ی کوتاه
+git diff                      # دیدن دقیق تغییرات هنوز add‌نشده</code></pre></div></div></section><section class="lesson" id="ignore"><div class="lesson-head"><span class="lesson-num">۵</span><h2>.gitignore و خطر .env</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">text</span></div><pre><code>/vendor
+/node_modules
+.env
+/storage/*.key
+.DS_Store</code></pre></div></div><div class="note warn"><div class="note-title">فایل .env هرگز commit نشود</div><p>داخل <code>.env</code> رمز دیتابیس، کلید برنامه و توکن‌های درگاه است. اگر آن را روی GitHub بگذاری، حتی بعد از حذف، در تاریخچه می‌ماند. اگر اشتباهاً رفت: همان رمزها را فوراً عوض کن (فقط حذف فایل کافی نیست). لاراول از قبل <code>.env</code> را در <code>.gitignore</code> دارد؛ دستکاری‌اش نکن.</p></div></section><section class="lesson" id="branch"><div class="lesson-head"><span class="lesson-num">۶</span><h2>شاخه (Branch) و ادغام</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>git switch -c feature/cart        # ساخت و رفتن به شاخه‌ی جدید
+# ... کار کن و commit بزن ...
+git switch main
+git merge feature/cart         # ادغام
+git branch -d feature/cart     # حذف شاخه‌ی تمام‌شده</code></pre></div></div><p>عادت خوب: هر قابلیت یک شاخه. شاخه‌ی <code>main</code> همیشه باید سالم و قابل‌اجرا باشد.</p></section><section class="lesson" id="github"><div class="lesson-head"><span class="lesson-num">۷</span><h2>GitHub: ذخیره‌ی ابری و پورتفولیو</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code># 1) در github.com یک Repository خالی بساز (ترجیحاً Private برای پروژه‌ی خصوصی)
+git remote add origin https://github.com/USERNAME/my-app.git
+git branch -M main
+git push -u origin main
+
+# برداشتن پروژه‌ی دیگران یا خودت روی کامپیوتر جدید
+git clone https://github.com/USERNAME/my-app.git
+cd my-app
+composer install
+cp .env.example .env &amp;&amp; php artisan key:generate</code></pre></div></div><div class="note tip"><div class="note-title">پیام commit خوب</div><p>کوتاه و دقیق بنویس: <code>fix: calculate cart total with discount</code> بهتر از «اصلاح». پیشوندهای رایج: <code>feat</code>، <code>fix</code>، <code>docs</code>، <code>refactor</code>، <code>test</code>. در درس پورتفولیو می‌بینی چرا GitHub مرتب، رزومه‌ی تو است.</p></div></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۸</span><h2>اشتباه‌های رایج</h2></div><ol><li>commit کردن <code>vendor</code> و <code>.env</code>.</li><li>زدن <code>git add .</code> بدون نگاه به <code>git status</code>.</li><li>کار مستقیم روی <code>main</code> برای تغییر بزرگ.</li><li>ترس از Git و commit نزدن تا آخر روز؛ commit کوچک و مکرر بزن.</li><li>اجرای <code>composer update</code> روی پروژه‌ی در حال کار بدون اینکه lock را بررسی کنی.</li><li>تداخل (conflict) را بدون خواندن علامت‌های <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code> حل‌کردن؛ فایل را باز کن، هر دو نسخه را بخوان و یکی (یا ترکیب) را نگه دار.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱: Composer</div><ol><li>پروژه‌ای خالی با <code>composer init</code> بساز و بسته‌ی <code>nesbot/carbon</code> را نصب کن؛ تاریخ فردا را چاپ کن.</li><li>اتولود PSR-4 را برای پوشه‌ی <code>src</code> تنظیم و یک کلاس تستی لود کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲: Git</div><ol><li>یک پوشه‌ی تازه بساز، <code>git init</code> کن، ۳ commit بزن و با <code>git log --oneline</code> ببین.</li><li>یک شاخه بساز، فایلی عوض کن، به main برگرد و merge کن. یک‌بار هم عمداً conflict بساز و حلش کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳: GitHub</div><ol><li>یک Repo بساز و پروژه را push کن. مطمئن شو <code>.env</code> و <code>vendor</code> بالا نرفته‌اند.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://getcomposer.org/doc/" target="_blank" rel="noopener">Composer Docs</a> — <a href="https://git-scm.com/book/en/v2" target="_blank" rel="noopener">Pro Git (رایگان)</a> — <a href="https://packagist.org/" target="_blank" rel="noopener">Packagist</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="sql-basics.html">→ بخش قبل: مبانی SQL و MySQL با phpMyAdmin</a><a href="01-مقدمه-و-نصب.html">بعدی: مقدمه و نصب لاراول ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

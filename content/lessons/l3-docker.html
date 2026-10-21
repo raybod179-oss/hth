@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۳ · درس 6 | Docker برای لاراول</title><meta name="description" content="Docker و docker compose برای لاراول: Sail، Dockerfile با PHP-FPM، Nginx، MySQL و Redis، .dockerignore، Volume و نکات استقرار.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۳ · درس 6</span><h1>Docker برای لاراول</h1><p>یک بار محیط را تعریف می‌کنی و همه‌جا (لپ‌تاپ، همکار، سرور) یکسان اجرا می‌شود. شروع با Sail و بعد ساخت محیط خودمان تا بفهمی زیر کاپوت چه می‌گذرد.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#why">Docker چیست و چرا؟</a></li><li><a href="#sail">ساده‌ترین شروع: Laravel Sail</a></li><li><a href="#dockerfile">Dockerfile برنامه</a></li><li><a href="#compose">docker-compose: برنامه + Nginx + MySQL + Redis</a></li><li><a href="#prod">نکات استقرار با Docker</a></li><li><a href="#prodimage">ساخت Image پروداکشن (Multi-stage)</a></li><li><a href="#compose-prod">محیط کامل پروداکشن: Worker، Scheduler و Healthcheck</a></li><li><a href="#data-ops">بکاپ، لاگ و به‌روزرسانی امن</a></li><li><a href="#trouble">جدول عیب‌یابی سریع</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="why"><div class="lesson-head"><span class="lesson-num">۱</span><h2>Docker چیست و چرا؟</h2></div><p>«روی سیستم من کار می‌کرد!» مشکل همیشگی تفاوت محیط‌هاست: نسخه‌ی PHP، افزونه‌ها، دیتابیس. Docker کل محیط (PHP، وب‌سرور، دیتابیس) را در «کانتینر» بسته‌بندی می‌کند؛ هر کسی با یک دستور همان محیط را بالا می‌آورد، چه روی ویندوز، چه روی سرور.</p><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>اصطلاح</th><th>یعنی</th></tr></thead><tbody><tr><td>Image</td><td>قالب فقط‌خواندنی (نقشه‌ی ساخت)</td></tr><tr><td>Container</td><td>یک نمونه‌ی در حال اجرا از Image</td></tr><tr><td>Dockerfile</td><td>دستور ساخت Image</td></tr><tr><td>docker compose</td><td>اجرای چند کانتینر کنار هم (برنامه + دیتابیس + Redis)</td></tr><tr><td>Volume</td><td>ذخیره‌ی ماندگار داده (دیتابیس) بیرون از کانتینر</td></tr></tbody></table></div><div class="note info"><div class="note-title">نصب</div><p>روی ویندوز Docker Desktop با WSL2؛ روی لینوکس Docker Engine. با <code>docker --version</code> و <code>docker compose version</code> مطمئن شو. گاهی دانلود Image از Docker Hub برای کاربران ایران کند یا محدود است؛ در آن صورت از Mirror/رجیستری جایگزین یا اینترنت دیگر استفاده کن.</p></div></section><section class="lesson" id="sail"><div class="lesson-head"><span class="lesson-num">۲</span><h2>ساده‌ترین شروع: Laravel Sail</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>composer require laravel/sail --dev
+php artisan sail:install        # سرویس‌ها (mysql, redis, ...) را انتخاب کن
+./vendor/bin/sail up -d         # اجرای محیط
+./vendor/bin/sail artisan migrate
+./vendor/bin/sail test</code></pre></div></div><p>Sail یک محیط توسعه‌ی آماده است؛ برای یادگیری و کار روزمره عالی است. برای فهمیدن اصل کار و استقرار روی سرور، یک محیط را خودمان با Dockerfile و compose می‌سازیم.</p></section><section class="lesson" id="dockerfile"><div class="lesson-head"><span class="lesson-num">۳</span><h2>Dockerfile برنامه</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">dockerfile</span></div><pre><code>FROM php:8.3-fpm
+
+RUN apt-get update &amp;&amp; apt-get install -y --no-install-recommends \
+        git unzip libzip-dev libonig-dev libicu-dev \
+    &amp;&amp; docker-php-ext-install pdo_mysql mbstring zip intl bcmath opcache \
+    &amp;&amp; rm -rf /var/lib/apt/lists/*
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+WORKDIR /var/www/html
+
+# اول فقط فایل‌های وابستگی (کش لایه‌ها)
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-scripts --no-autoloader --prefer-dist
+
+COPY . .
+RUN composer dump-autoload --optimize \
+    &amp;&amp; chown -R www-data:www-data storage bootstrap/cache
+
+EXPOSE 9000
+CMD ["php-fpm"]</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">text</span></div><pre><code># .dockerignore
+.git
+node_modules
+vendor
+.env
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*</code></pre></div></div><div class="note tip"><div class="note-title">ترتیب دستورات مهم است</div><p>Docker هر دستور را به‌صورت یک «لایه» کش می‌کند. وابستگی‌ها را قبل از کپی کل کد می‌گذاریم تا با هر تغییر کوچک در کد، Composer دوباره اجرا نشود و ساخت سریع بماند.</p></div></section><section class="lesson" id="compose"><div class="lesson-head"><span class="lesson-num">۴</span><h2>docker-compose: برنامه + Nginx + MySQL + Redis</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">yaml</span></div><pre><code>services:
+  app:
+    build: .
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      - db
+      - redis
+
+  web:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - .:/var/www/html:ro
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: laravel
+      MYSQL_USER: laravel
+      MYSQL_PASSWORD: secret
+      MYSQL_ROOT_PASSWORD: root-secret
+    volumes:
+      - dbdata:/var/lib/mysql
+
+  redis:
+    image: redis:7-alpine
+
+volumes:
+  dbdata:</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">nginx</span></div><pre><code>server {
+    listen 80;
+    server_name _;
+    root /var/www/html/public;
+    index index.php;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        fastcgi_pass app:9000;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+    }
+
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">text</span></div><pre><code># .env داخل Docker (نام سرویس‌ها = نام میزبان)
+DB_CONNECTION=mysql
+DB_HOST=db
+DB_PORT=3306
+DB_DATABASE=laravel
+DB_USERNAME=laravel
+DB_PASSWORD=secret
+REDIS_HOST=redis
+CACHE_STORE=redis
+QUEUE_CONNECTION=redis</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>docker compose up -d --build              # ساخت و اجرا
+docker compose exec app php artisan key:generate
+docker compose exec app php artisan migrate
+docker compose logs -f app                  # دیدن لاگ
+docker compose down                         # توقف (داده‌ی volume می‌ماند)
+docker compose down -v                      # توقف + حذف داده‌ها (مراقب!)</code></pre></div></div><p>حالا <code>http://localhost:8080</code> را باز کن. برای Worker صف هم یک سرویس جدا با همان image و دستور <code>php artisan queue:work</code> اضافه می‌شود.</p></section><section class="lesson" id="prod"><div class="lesson-head"><span class="lesson-num">۵</span><h2>نکات استقرار با Docker</h2></div><ul><li><b>Image را در CI بساز</b> و روی رجیستری (GitHub Container Registry یا Docker Hub) بگذار؛ سرور فقط <code>pull</code> و <code>up</code> می‌کند، نه ساخت.</li><li><b>فایل .env را داخل Image نگذار</b>؛ متغیرها را هنگام اجرا (environment یا secrets) بده.</li><li>برای فرانت: مرحله‌ی جدا (multi-stage) با Node برای <code>npm run build</code> و کپی فقط خروجی در Image نهایی.</li><li>رمزهای دیتابیس در compose بالا فقط برای توسعه است؛ در پروداکشن رمز قوی و از Secret استفاده کن و پورت دیتابیس را به بیرون باز نکن.</li><li><code>php artisan migrate --force</code> را با دقت و بعد از بکاپ اجرا کن.</li><li>کانتینر Stateless باشد: فایل‌های آپلودی و Session را روی Volume یا S3 و Redis بگذار، نه داخل کانتینر.</li></ul></section><section class="lesson" id="prodimage" data-deep="1"><div class="lesson-head"><span class="lesson-num">۶</span><h2>ساخت Image پروداکشن (Multi-stage)</h2></div><p>Dockerfile بخش قبل برای توسعه خوب است، ولی Image پروداکشن باید کوچک، سریع و بدون ابزارهای اضافه (Node، Git، پکیج‌های dev) باشد. راهش «ساخت چندمرحله‌ای» است: هر مرحله کار خودش را می‌کند و فقط خروجی لازم به Image نهایی می‌رسد.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">dockerfile</span></div><pre><code># مرحله ۱: ساخت فایل‌های فرانت (Vite)
+FROM node:22-alpine AS assets
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# مرحله ۲: نصب وابستگی‌های PHP (بدون پکیج‌های dev)
+FROM composer:2 AS vendor
+WORKDIR /app
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-scripts --no-autoloader --prefer-dist --ignore-platform-reqs
+COPY . .
+RUN composer dump-autoload --optimize --classmap-authoritative --ignore-platform-reqs
+
+# مرحله ۳: Image نهایی
+FROM php:8.3-fpm-alpine AS production
+RUN apk add --no-cache libzip-dev icu-dev oniguruma-dev \
+    &amp;&amp; docker-php-ext-install pdo_mysql mbstring zip intl bcmath opcache pcntl
+
+COPY docker/php-prod.ini /usr/local/etc/php/conf.d/zz-prod.ini
+WORKDIR /var/www/html
+COPY --from=vendor /app /var/www/html
+COPY --from=assets /app/public/build /var/www/html/public/build
+RUN rm -rf tests node_modules .git \
+    &amp;&amp; chown -R www-data:www-data storage bootstrap/cache
+
+EXPOSE 9000
+CMD ["php-fpm"]</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">ini</span></div><pre><code>; docker/php-prod.ini
+expose_php=0
+memory_limit=256M
+upload_max_filesize=20M
+post_max_size=25M
+opcache.enable=1
+opcache.memory_consumption=192
+opcache.max_accelerated_files=20000
+opcache.validate_timestamps=0   ; فقط پروداکشن: فایل‌ها بعد از ساخت Image عوض نمی‌شوند</code></pre></div></div><div class="note info"><div class="note-title">چرا --ignore-platform-reqs؟</div><p>Image رسمی composer افزونه‌هایی مثل <code>intl</code> را ندارد و در مرحله‌ی ساخت شکایت می‌کند. چون Image نهایی افزونه‌ها را دارد، در این مرحله چک‌کردن آن‌ها را رد می‌کنیم. همیشه یک بار پروژه را در Image نهایی هم اجرا کن تا مطمئن شوی.</p></div><div class="note tip"><div class="note-title">اندازه و سرعت</div><p>با <code>docker images</code> اندازه را ببین. Image پروداکشن معمولاً چند برابر کوچک‌تر از Image توسعه است و ساخت دوباره‌اش به‌خاطر کش لایه‌ها سریع می‌شود.</p></div></section><section class="lesson" id="compose-prod" data-deep="1"><div class="lesson-head"><span class="lesson-num">۷</span><h2>محیط کامل پروداکشن: Worker، Scheduler و Healthcheck</h2></div><p>پروژه‌ی واقعی فقط وب نیست: صف باید Worker داشته باشد و زمان‌بندی باید هر دقیقه اجرا شود. هر کدام یک سرویس جدا با همان Image برنامه است. Healthcheck هم کمک می‌کند برنامه فقط وقتی دیتابیس آماده است بالا بیاید.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">yaml</span></div><pre><code># docker-compose.prod.yml
+x-app: &amp;app
+  image: ghcr.io/your-name/shop:latest
+  restart: unless-stopped
+  env_file: .env.production
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  app:
+    &lt;&lt;: *app
+
+  worker:
+    &lt;&lt;: *app
+    command: php artisan queue:work --sleep=3 --tries=3 --timeout=90 --max-time=3600
+
+  scheduler:
+    &lt;&lt;: *app
+    command: php artisan schedule:work
+
+  web:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./public:/var/www/html/public:ro
+    depends_on:
+      - app
+
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    env_file: .env.db
+    volumes:
+      - dbdata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+
+volumes:
+  dbdata:
+  redisdata:</code></pre></div></div><p>نکته‌ی مهم: Nginx باید به فایل‌های <code>public</code> (CSS، JS، عکس) دسترسی داشته باشد. در این الگو پوشه‌ی public را روی سرور کنار compose نگه می‌داریم؛ روش جایگزین این است که Image جدا برای Nginx با کپی همان فایل‌ها بسازی.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code># اولین استقرار روی سرور
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml exec app php artisan key:generate --show   # فقط اولین بار؛ مقدار را در .env.production بگذار
+docker compose -f docker-compose.prod.yml exec app php artisan migrate --force
+docker compose -f docker-compose.prod.yml exec app php artisan optimize
+docker compose -f docker-compose.prod.yml exec app php artisan storage:link
+
+# هر استقرار بعدی
+docker compose -f docker-compose.prod.yml pull &amp;&amp; docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml exec app php artisan migrate --force
+docker compose -f docker-compose.prod.yml exec app php artisan optimize
+docker compose -f docker-compose.prod.yml restart worker</code></pre></div></div><div class="note warn"><div class="note-title">Worker بعد از هر استقرار</div><p>Worker کد را در حافظه نگه می‌دارد. بعد از استقرار حتماً <code>php artisan queue:restart</code> یا <code>restart worker</code> بزن، وگرنه Jobها با کد قدیمی اجرا می‌شوند.</p></div></section><section class="lesson" id="data-ops" data-deep="1"><div class="lesson-head"><span class="lesson-num">۸</span><h2>بکاپ، لاگ و به‌روزرسانی امن</h2></div><p>کانتینر را می‌شود هر لحظه دور انداخت و دوباره ساخت؛ داده‌ها را نمی‌شود. پس بکاپ بخشی از تعریف «استقرار» است.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code># بکاپ دیتابیس (روی سرور؛ نمونه‌ی روزانه با cron)
+docker compose -f docker-compose.prod.yml exec -T db \
+  sh -c 'mysqldump -u root -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines laravel' \
+  | gzip &gt; /backups/shop-$(date +%F).sql.gz
+
+# بازگردانی
+gunzip &lt; /backups/shop-2026-10-19.sql.gz | docker compose -f docker-compose.prod.yml exec -T db \
+  sh -c 'mysql -u root -p"$MYSQL_ROOT_PASSWORD" laravel'
+
+# نگه‌داری فقط ۱۴ بکاپ آخر
+find /backups -name 'shop-*.sql.gz' -mtime +14 -delete</code></pre></div></div><ul><li>بکاپ را <b>روی همان سرور نگه نداری</b>؛ یک نسخه را به جای دیگر (سرور دیگر، فضای ابری) بفرست.</li><li>حداقل ماهی یک بار بازگردانی را روی یک سرور تست امتحان کن؛ بکاپی که بازگردانی‌اش را امتحان نکرده‌ای، بکاپ نیست.</li><li>لاگ‌ها: <code>docker compose logs --tail=100 -f app</code>. برای جلوگیری از پر شدن دیسک، در compose برای هر سرویس <code>logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }</code> بگذار.</li><li>به‌روزرسانی Image پایه (مثلاً <code>php:8.3-fpm-alpine</code>) را هر چند وقت یک بار و با تست انجام بده تا وصله‌های امنیتی بگیری.</li></ul></section><section class="lesson" id="trouble" data-deep="1"><div class="lesson-head"><span class="lesson-num">۹</span><h2>جدول عیب‌یابی سریع</h2></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>علامت</th><th>علت محتمل</th><th>راه‌حل</th></tr></thead><tbody><tr><td>صفحه‌ی <code>502 Bad Gateway</code></td><td>Nginx به سرویس <code>app</code> نمی‌رسد یا php-fpm بالا نیامده</td><td><code>docker compose logs app</code>؛ مطمئن شو <code>fastcgi_pass app:9000</code> و نام سرویس یکی است</td></tr><tr><td><code>SQLSTATE[HY000] [2002] Connection refused</code></td><td><code>DB_HOST</code> اشتباه یا MySQL هنوز بالا نیامده</td><td><code>DB_HOST=db</code> و استفاده از healthcheck</td></tr><tr><td>تغییر کد دیده نمی‌شود</td><td>کد داخل Image است و Volume نداری، یا <code>opcache.validate_timestamps=0</code></td><td>در توسعه Volume بگذار؛ در پروداکشن Image تازه بساز و <code>up -d</code> بزن</td></tr><tr><td><code>Permission denied</code> روی storage</td><td>مالک پوشه root است</td><td><code>chown -R www-data:www-data storage bootstrap/cache</code></td></tr><tr><td><code>port is already allocated</code></td><td>پورت روی سیستم گرفته (مثلاً XAMPP)</td><td>پورت بیرونی را عوض کن: <code>"8081:80"</code></td></tr><tr><td>Image دانلود نمی‌شود</td><td>محدودیت دسترسی به Docker Hub</td><td>Mirror یا رجیستری جایگزین؛ Image را یک بار دانلود و <code>docker save/load</code> کن</td></tr><tr><td>دیسک پر شد</td><td>Imageها و لاگ‌های قدیمی</td><td><code>docker system df</code> و بعد <code>docker image prune</code> (با دقت)</td></tr></tbody></table></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>docker ps -a                          # همه‌ی کانتینرها و وضعیتشان
+docker compose config                 # compose نهایی بعد از جایگزینی متغیرها (غلط‌یابی YAML)
+docker compose exec app sh            # وارد شدن به کانتینر
+docker inspect &lt;container&gt; | less     # جزئیات کامل
+docker stats                          # مصرف CPU و RAM هر کانتینر</code></pre></div></div></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۱۰</span><h2>اشتباه‌های رایج</h2></div><ol><li><code>DB_HOST=127.0.0.1</code> داخل کانتینر؛ باید نام سرویس (<code>db</code>) باشد.</li><li>فراموش‌کردن Volume برای دیتابیس و از دست رفتن همه‌ی داده با حذف کانتینر.</li><li>کپی‌کردن <code>.env</code> و اسرار داخل Image.</li><li>نداشتن <code>.dockerignore</code> و Image خیلی سنگین.</li><li>مشکل دسترسی <code>storage</code> (خطای 500 هنگام نوشتن لاگ): مالک پوشه را <code>www-data</code> کن.</li><li>اجرای کانتینرها با <code>root</code> بدون نیاز.</li><li>بدون healthcheck: برنامه قبل از آماده‌شدن دیتابیس بالا می‌آید و اولین درخواست‌ها خطا می‌دهند.</li><li>فراموش‌کردن <code>queue:restart</code> بعد از استقرار؛ Worker با کد قدیمی کار می‌کند.</li><li>بکاپ‌نگرفتن قبل از <code>migrate --force</code> روی دیتابیس واقعی.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>Sail را نصب کن، پروژه را بالا بیاور و تست‌ها را داخل آن اجرا کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li>Dockerfile و compose بالا را برای یکی از پروژه‌هایت بساز و با <code>docker compose up</code> اجرا کن؛ سپس migrate بزن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>یک سرویس <code>worker</code> برای صف اضافه کن و یک Job را امتحان کن.</li><li>داده‌ی دیتابیس را با <code>down</code> و <code>up</code> دوباره روشن کن و ببین ماندگار است (Volume).</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۴</div><ol><li>Dockerfile چندمرحله‌ای بالا را برای پروژه‌ات بساز و اندازه‌ی Image را با نسخه‌ی ساده مقایسه کن (<code>docker images</code>).</li><li>فایل <code>docker-compose.prod.yml</code> را روی لپ‌تاپ اجرا کن؛ یک Job را dispatch کن و ببین Worker آن را اجرا می‌کند.</li><li>اسکریپت بکاپ را بنویس، یک بکاپ بگیر و آن را در یک دیتابیس تازه بازگردانی کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۵</div><ol><li>یک سرویس <code>phpmyadmin</code> فقط برای توسعه به compose اضافه کن و مطمئن شو در فایل پروداکشن نیست؛ دلیلش را در دو جمله بنویس.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://laravel.com/docs/13.x/sail" target="_blank" rel="noopener">Laravel Sail</a> — <a href="https://docs.docker.com/" target="_blank" rel="noopener">Docker Docs</a> — <a href="https://docs.docker.com/compose/compose-file/" target="_blank" rel="noopener">Compose file reference</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="l3-broadcasting.html">→ بخش قبل: بلادرنگ (Broadcasting)</a><a href="l3-deploy.html">بعدی: دیپلوی روی هاست و VPS ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۲ · درس 4 | احراز هویت API با Sanctum</title><meta name="description" content="ورود و ثبت‌نام API با توکن در لاراول Sanctum: createToken، auth:sanctum، abilities، انقضا، logout، حالت SPA و تست با Sanctum::actingAs.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۲ · درس 4</span><h1>احراز هویت API با Sanctum</h1><p>API بدون احراز هویت یعنی داده‌ی همه در دسترس همه. با Sanctum در چند خط ورود امن با توکن را راه می‌اندازی و دسترسی‌ها را محدود می‌کنی.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#what">Sanctum چیست و کجا به کار می‌آید؟</a></li><li><a href="#model">آماده‌سازی مدل User</a></li><li><a href="#login">ثبت‌نام، ورود و خروج با توکن</a></li><li><a href="#use">استفاده از توکن</a></li><li><a href="#abilities">Ability: توکن با دسترسی محدود</a></li><li><a href="#spa">حالت SPA با کوکی (مرور)</a></li><li><a href="#test">تست API احراز هویت‌شده</a></li><li><a href="#lifecycle">چرخه‌ی عمر توکن: انقضا، لغو و چند دستگاه</a></li><li><a href="#hardening">سخت‌کردن ورود و جلوگیری از حمله‌ی حدس رمز</a></li><li><a href="#spa-pitfalls">تنظیمات SPA و خطاهای معمول ۴۱۹ و ۴۰۱</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="what"><div class="lesson-head"><span class="lesson-num">۱</span><h2>Sanctum چیست و کجا به کار می‌آید؟</h2></div><p>وقتی اپ موبایل یا یک فرانت جدا به API وصل می‌شود، کوکی و Session مرورگر در کار نیست. <b>Sanctum</b> سبک‌ترین راه رسمی لاراول برای این کار است: کاربر با ایمیل و رمز وارد می‌شود و یک <b>توکن</b> می‌گیرد؛ در هر درخواست بعدی توکن را در هدر می‌فرستد.</p><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>حالت</th><th>مناسب برای</th><th>روش</th></tr></thead><tbody><tr><td>توکن شخصی</td><td>اپ موبایل، سرویس‌های دیگر</td><td>هدر <code>Authorization: Bearer ...</code></td></tr><tr><td>SPA با کوکی</td><td>فرانت React/Vue روی دامنه‌ی هم‌خانواده</td><td>کوکی Session و CSRF (در همین درس مرور می‌شود)</td></tr></tbody></table></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan install:api      # Sanctum را نصب و migration توکن‌ها را آماده می‌کند
+php artisan migrate</code></pre></div></div></section><section class="lesson" id="model"><div class="lesson-head"><span class="lesson-num">۲</span><h2>آماده‌سازی مدل User</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Models;
+
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Laravel\Sanctum\HasApiTokens;
+
+class User extends Authenticatable
+{
+    use HasApiTokens;   // اگر نبود اضافه کن؛ متدهای createToken و tokens() از اینجاست
+    // ...
+}</code></pre></div></div></section><section class="lesson" id="login"><div class="lesson-head"><span class="lesson-num">۳</span><h2>ثبت‌نام، ورود و خروج با توکن</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\User;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\ValidationException;
+
+class AuthController extends Controller
+{
+    public function register(Request $request): JsonResponse
+    {
+        $data = $request-&gt;validate([
+            'name'     =&gt; ['required', 'string', 'max:100'],
+            'email'    =&gt; ['required', 'email', 'unique:users,email'],
+            'password' =&gt; ['required', 'string', 'min:8', 'confirmed'],
+        ]);
+
+        $user = User::create($data);   // اگر cast 'hashed' روی password هست، خودکار هش می‌شود
+
+        return response()-&gt;json([
+            'user'  =&gt; $user-&gt;only('id', 'name', 'email'),
+            'token' =&gt; $user-&gt;createToken('mobile')-&gt;plainTextToken,
+        ], 201);
+    }
+
+    public function login(Request $request): JsonResponse
+    {
+        $request-&gt;validate([
+            'email'       =&gt; ['required', 'email'],
+            'password'    =&gt; ['required'],
+            'device_name' =&gt; ['nullable', 'string', 'max:60'],
+        ]);
+
+        $user = User::where('email', $request-&gt;email)-&gt;first();
+
+        if (! $user || ! Hash::check($request-&gt;password, $user-&gt;password)) {
+            // پیام یکسان برای «کاربر نیست» و «رمز غلط»: به مهاجم سرنخ نمی‌دهد
+            throw ValidationException::withMessages(['email' =&gt; ['ایمیل یا رمز عبور درست نیست.']]);
+        }
+
+        return response()-&gt;json([
+            'token' =&gt; $user-&gt;createToken($request-&gt;device_name ?? 'api')-&gt;plainTextToken,
+        ]);
+    }
+
+    public function logout(Request $request): JsonResponse
+    {
+        $request-&gt;user()-&gt;currentAccessToken()-&gt;delete();   // فقط توکن همین دستگاه
+
+        return response()-&gt;json(['message' =&gt; 'خارج شدی']);
+    }
+
+    public function logoutAll(Request $request): JsonResponse
+    {
+        $request-&gt;user()-&gt;tokens()-&gt;delete();               // همه‌ی دستگاه‌ها
+
+        return response()-&gt;json(['message' =&gt; 'از همه‌ی دستگاه‌ها خارج شدی']);
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+// routes/api.php
+use App\Http\Controllers\Api\AuthController;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
+
+Route::post('/register', [AuthController::class, 'register'])-&gt;middleware('throttle:10,1');
+Route::post('/login', [AuthController::class, 'login'])-&gt;middleware('throttle:10,1');
+
+Route::middleware('auth:sanctum')-&gt;group(function () {
+    Route::get('/user', fn (Request $request) =&gt; $request-&gt;user());
+    Route::post('/logout', [AuthController::class, 'logout']);
+    Route::post('/logout-all', [AuthController::class, 'logoutAll']);
+});</code></pre></div></div><div class="note warn"><div class="note-title">توکن فقط یک‌بار دیده می‌شود</div><p><code>plainTextToken</code> فقط همان لحظه‌ی ساخت قابل مشاهده است؛ در دیتابیس فقط هش آن ذخیره می‌شود. کلاینت باید آن را امن نگه دارد (در اپ موبایل Keychain/Keystore، نه جایی ساده). حتماً سایت را روی HTTPS ببری؛ توکن روی HTTP قابل شنود است.</p></div></section><section class="lesson" id="use"><div class="lesson-head"><span class="lesson-num">۴</span><h2>استفاده از توکن</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>curl -X POST http://localhost:8000/api/login \
+  -H "Accept: application/json" -H "Content-Type: application/json" \
+  -d '{"email":"ali@example.com","password":"secret1234"}'
+# ← {"token":"1|AbCdEf..."}
+
+curl http://localhost:8000/api/user \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer 1|AbCdEf..."</code></pre></div></div><p>اگر توکن نباشد یا نامعتبر باشد، پاسخ <code>401 Unauthenticated</code> می‌گیری (به شرطی که هدر <code>Accept: application/json</code> را فرستاده باشی).</p></section><section class="lesson" id="abilities"><div class="lesson-head"><span class="lesson-num">۵</span><h2>Ability: توکن با دسترسی محدود</h2></div><p>می‌توانی هنگام ساخت توکن مشخص کنی چه کارهایی را اجازه دارد؛ مثلاً توکنی که فقط سفارش‌ها را بخواند.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+$token = $user-&gt;createToken('report-bot', ['orders:read'])-&gt;plainTextToken;
+
+// داخل کنترلر
+if (! $request-&gt;user()-&gt;tokenCan('orders:read')) {
+    abort(403);
+}
+
+// یا با middleware (alias آن‌ها را در bootstrap/app.php ثبت کن)
+// Route::get('/orders', ...)-&gt;middleware(['auth:sanctum', 'abilities:orders:read']);</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+// bootstrap/app.php  (فقط بخش alias را به فایل خودت اضافه کن)
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Configuration\Exceptions;
+use Illuminate\Foundation\Configuration\Middleware;
+use Laravel\Sanctum\Http\Middleware\CheckAbilities;
+use Laravel\Sanctum\Http\Middleware\CheckForAnyAbility;
+
+return Application::configure(basePath: dirname(__DIR__))
+    -&gt;withRouting(
+        web: __DIR__.'/../routes/web.php',
+        api: __DIR__.'/../routes/api.php',
+        commands: __DIR__.'/../routes/console.php',
+        health: '/up',
+    )
+    -&gt;withMiddleware(function (Middleware $middleware) {
+        $middleware-&gt;alias([
+            'abilities' =&gt; CheckAbilities::class,      // همه‌ی abilityها لازم است
+            'ability'   =&gt; CheckForAnyAbility::class,  // یکی کافی است
+        ]);
+    })
+    -&gt;withExceptions(function (Exceptions $exceptions) {
+        //
+    })-&gt;create();</code></pre></div></div><div class="note tip"><div class="note-title">انقضا</div><p>در <code>config/sanctum.php</code> مقدار <code>expiration</code> را (به دقیقه) تنظیم کن تا توکن‌ها خودکار باطل شوند؛ یا هنگام ساخت، تاریخ انقضا بده: <code>createToken('x', ['*'], now()->addDays(30))</code>. برای اپ‌های حساس (پرداخت) توکن کوتاه‌مدت بهتر است.</p></div></section><section class="lesson" id="spa"><div class="lesson-head"><span class="lesson-num">۶</span><h2>حالت SPA با کوکی (مرور)</h2></div><p>اگر فرانت‌اند (React/Vue) روی همان دامنه‌ی اصلی یا زیردامنه‌اش است، به‌جای توکن می‌توان از کوکی Session استفاده کرد: ابتدا <code>GET /sanctum/csrf-cookie</code> سپس ورود. تنظیمات مهم: <code>SANCTUM_STATEFUL_DOMAINS</code> و <code>SESSION_DOMAIN</code> در <code>.env</code> و <code>supports_credentials</code> در CORS. چون این مسیر به فرانت‌اند وابسته است، پیکربندی دقیق را از مستندات رسمی دنبال کن.</p></section><section class="lesson" id="test"><div class="lesson-head"><span class="lesson-num">۷</span><h2>تست API احراز هویت‌شده</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Tests\Feature;
+
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Sanctum\Sanctum;
+use Tests\TestCase;
+
+class AuthApiTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_guest_gets_401(): void
+    {
+        $this-&gt;getJson('/api/user')-&gt;assertUnauthorized();
+    }
+
+    public function test_user_can_login_and_get_token(): void
+    {
+        User::factory()-&gt;create(['email' =&gt; 'a@b.com', 'password' =&gt; 'secret1234']);
+
+        $this-&gt;postJson('/api/login', ['email' =&gt; 'a@b.com', 'password' =&gt; 'secret1234'])
+             -&gt;assertOk()
+             -&gt;assertJsonStructure(['token']);
+    }
+
+    public function test_authenticated_user_sees_profile(): void
+    {
+        Sanctum::actingAs(User::factory()-&gt;create(), ['*']);
+
+        $this-&gt;getJson('/api/user')-&gt;assertOk();
+    }
+}</code></pre></div></div></section><section class="lesson" id="lifecycle" data-deep="1"><div class="lesson-head"><span class="lesson-num">۸</span><h2>چرخه‌ی عمر توکن: انقضا، لغو و چند دستگاه</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// ساخت توکن برای هر دستگاه با نام و Ability مشخص
+$token = $user-&gt;createToken($request-&gt;input('device_name', 'mobile'), ['orders:read', 'orders:create'], now()-&gt;addDays(30));
+return ['token' =&gt; $token-&gt;plainTextToken];
+
+// خروج از دستگاه فعلی
+$request-&gt;user()-&gt;currentAccessToken()-&gt;delete();
+
+// خروج از همه‌ی دستگاه‌ها (مثلاً بعد از تغییر رمز)
+$request-&gt;user()-&gt;tokens()-&gt;delete();
+
+// فهرست دستگاه‌ها برای صفحه‌ی «نشست‌های من»
+$request-&gt;user()-&gt;tokens()-&gt;get(['id', 'name', 'last_used_at', 'created_at']);</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// config/sanctum.php: انقضای سراسری (دقیقه)؛ null = بدون انقضا
+'expiration' =&gt; 60 * 24 * 30,</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// routes/console.php: پاک‌کردن توکن‌های منقضی‌شده
+Schedule::command('sanctum:prune-expired --hours=24')-&gt;daily();</code></pre></div></div><ul><li>پس از تغییر رمز یا مشکوک‌بودن حساب، <b>همه‌ی توکن‌ها را باطل کن</b>.</li><li>توکن‌ها فقط یک بار به‌صورت متن ساده برگردانده می‌شوند (در دیتابیس هش می‌شوند)؛ اگر کاربر گمش کرد، توکن جدید بساز.</li><li>Ability را حداقلی بده؛ توکن اپ موبایل مشتری نباید <code>*</code> باشد.</li></ul></section><section class="lesson" id="hardening" data-deep="1"><div class="lesson-head"><span class="lesson-num">۹</span><h2>سخت‌کردن ورود و جلوگیری از حمله‌ی حدس رمز</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// محدودیت نرخ ورود بر اساس ایمیل + IP
+RateLimiter::for('login', function (Request $request) {
+    return Limit::perMinute(5)-&gt;by(strtolower($request-&gt;input('email')) . '|' . $request-&gt;ip());
+});
+
+Route::post('/login', [AuthController::class, 'login'])-&gt;middleware('throttle:login');
+
+public function login(Request $request)
+{
+    $credentials = $request-&gt;validate(['email' =&gt; 'required|email', 'password' =&gt; 'required']);
+
+    if (! Auth::attempt($credentials)) {
+        // پیام یکسان؛ نگو «ایمیل وجود ندارد»
+        return response()-&gt;json(['message' =&gt; 'اطلاعات ورود نادرست است'], 422);
+    }
+
+    $user = $request-&gt;user();
+    $user-&gt;tokens()-&gt;where('name', $request-&gt;input('device_name', 'mobile'))-&gt;delete();   // توکن قبلی همان دستگاه
+    return ['token' =&gt; $user-&gt;createToken($request-&gt;input('device_name', 'mobile'))-&gt;plainTextToken];
+}</code></pre></div></div><ul><li>پیام خطا نباید فرق «کاربر نیست» و «رمز غلط است» را لو بدهد.</li><li>همه‌چیز فقط روی <b>HTTPS</b>؛ توکن روی HTTP قابل‌شنود است.</li><li>توکن را در لاگ نریز: هدر <code>Authorization</code> را در لاگ‌ها ماسک کن.</li><li>برای ورود با OTP موبایل هم همین الگو را با محدودیت نرخ شدیدتر (مثلاً ۳ درخواست در ۱۰ دقیقه) بساز.</li></ul></section><section class="lesson" id="spa-pitfalls" data-deep="1"><div class="lesson-head"><span class="lesson-num">۱۰</span><h2>تنظیمات SPA و خطاهای معمول ۴۱۹ و ۴۰۱</h2></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>علامت</th><th>علت معمول</th><th>راه‌حل</th></tr></thead><tbody><tr><td><code>419 CSRF token mismatch</code></td><td>اول <code>/sanctum/csrf-cookie</code> صدا زده نشده یا کوکی روی دامنه‌ی دیگر است</td><td>اول <code>GET /sanctum/csrf-cookie</code>؛ <code>withCredentials: true</code> در Axios</td></tr><tr><td><code>401</code> با این‌که وارد شده‌ای</td><td>دامنه‌ی فرانت در <code>SANCTUM_STATEFUL_DOMAINS</code> نیست</td><td>مثلاً <code>localhost:5173,app.example.com</code></td></tr><tr><td>کوکی ذخیره نمی‌شود</td><td><code>SESSION_DOMAIN</code> اشتباه یا ترکیب http/https</td><td><code>SESSION_DOMAIN=.example.com</code> و HTTPS یکسان</td></tr><tr><td>خطای CORS</td><td><code>supports_credentials</code> خاموش</td><td>در <code>config/cors.php</code> مقدار <code>true</code> و origin دقیق (نه <code>*</code>)</td></tr></tbody></table></div><div class="note warn"><div class="note-title">SPA یا موبایل؟</div><p>برای SPA هم‌دامنه از حالت کوکی/نشست Sanctum استفاده کن؛ توکن را در <code>localStorage</code> نگه نداری (با XSS قابل سرقت است). حالت Token برای اپ‌های موبایل و کلاینت‌های بیرونی است.</p></div></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۱۱</span><h2>اشتباه‌های رایج</h2></div><ol><li>فرستادن توکن بدون کلمه‌ی <code>Bearer </code> (با فاصله).</li><li>فراموش‌کردن <code>HasApiTokens</code> و خطای «createToken undefined».</li><li>پیام‌های خطای متفاوت برای ایمیل نامعتبر و رمز اشتباه (کمک به حمله).</li><li>ذخیره‌ی توکن در جای ناامن کلاینت و HTTP بدون TLS.</li><li>نداشتن <code>throttle</code> روی login (حمله‌ی حدس رمز).</li><li>ندادن انقضا به توکن‌ها و باقی‌ماندن توکن‌های قدیمی.</li><li>توکن بدون انقضا و بدون ماژول لغو بعد از تغییر رمز.</li><li>قراردادن توکن در <code>localStorage</code> در SPA.</li><li><code>supports_credentials=false</code> و ندیدن علت خطای CORS/۴۱۹.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>مسیرهای register، login، logout و <code>/user</code> را با Postman تست کن و توکن را در هدر بفرست.</li><li>تستی بنویس که پس از logout، همان توکن ۴۰۱ بدهد.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li>مسیر <code>GET /api/my-orders</code> بساز که فقط سفارش‌های کاربر فعلی را برگرداند (با Resource).</li><li>یک توکن با ability فقط‌خواندنی بساز و مطمئن شو نمی‌تواند سفارش بسازد.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>صفحه‌ی «دستگاه‌های من» بساز که <code>$user->tokens</code> را (نام و آخرین استفاده) نشان بدهد و امکان حذف هر توکن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۴</div><ol><li>صفحه‌ی «دستگاه‌های من» بساز که توکن‌ها را فهرست کند و دکمه‌ی «خروج از این دستگاه» داشته باشد.</li><li>انقضای ۷ روزه برای توکن‌ها بگذار و یک تست بنویس که توکن منقضی ۴۰۱ می‌دهد.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۵</div><ol><li>محدودیت نرخ ورود (۵ بار در دقیقه) را اضافه کن و با یک تست ثابت کن بار ششم ۴۲۹ می‌دهد.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://laravel.com/docs/13.x/sanctum" target="_blank" rel="noopener">Laravel Sanctum</a> — <a href="https://laravel.com/docs/13.x/rate-limiting" target="_blank" rel="noopener">Rate Limiting</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="l2-api-resources.html">→ بخش قبل: ساخت API و Resource</a><a href="l2-queues.html">بعدی: صف (Queue) و Job ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

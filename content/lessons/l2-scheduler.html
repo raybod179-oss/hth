@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۲ · درس 8 | Scheduler و کارهای زمان‌بندی‌شده</title><meta name="description" content="ساخت دستور Artisan، زمان‌بندی در routes/console.php، Cron سرور، withoutOverlapping، timezone تهران و تست دستورها در لاراول.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۲ · درس 8</span><h1>Scheduler و کارهای زمان‌بندی‌شده</h1><p>سایت حرفه‌ای کارهای تکراری را خودش انجام می‌دهد: لغو سفارش، گزارش، پاک‌سازی. با یک Cron همه‌ی آن‌ها را از داخل کد کنترل می‌کنی.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#why">Scheduler چیست؟</a></li><li><a href="#command">ساخت یک دستور Artisan</a></li><li><a href="#schedule">زمان‌بندی در routes/console.php</a></li><li><a href="#run">راه‌اندازی روی سرور</a></li><li><a href="#good">عادت‌های درست</a></li><li><a href="#test">تست دستور</a></li><li><a href="#safety">جلوگیری از هم‌پوشانی، چند سرور و اجرا در پس‌زمینه</a></li><li><a href="#monitor">نظارت: بفهم کار اجرا شد یا نه</a></li><li><a href="#cron">راه‌اندازی روی سرور واقعی</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="why"><div class="lesson-head"><span class="lesson-num">۱</span><h2>Scheduler چیست؟</h2></div><p>کارهایی هستند که باید خودکار و در زمان مشخص اجرا شوند: لغو سفارش‌های پرداخت‌نشده بعد از ۳۰ دقیقه، گزارش روزانه‌ی فروش، پاک‌سازی داده‌های قدیمی. روش قدیمی این بود که برای هر کار یک Cron جدا در سرور بسازی. در لاراول فقط <b>یک</b> Cron می‌سازی و همه‌ی زمان‌بندی‌ها را داخل خود کد می‌نویسی؛ در گیت می‌ماند و قابل‌تست است.</p></section><section class="lesson" id="command"><div class="lesson-head"><span class="lesson-num">۲</span><h2>ساخت یک دستور Artisan</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan make:command CancelUnpaidOrders</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Console\Commands;
+
+use App\Models\Order;
+use Illuminate\Console\Command;
+
+class CancelUnpaidOrders extends Command
+{
+    protected $signature = 'orders:cancel-unpaid {--minutes=30 : چند دقیقه بعد لغو شود}';
+
+    protected $description = 'سفارش‌های پرداخت‌نشده‌ی قدیمی را لغو می‌کند';
+
+    public function handle(): int
+    {
+        $cutoff = now()-&gt;subMinutes((int) $this-&gt;option('minutes'));
+        $count = 0;
+
+        Order::where('status', 'pending')
+            -&gt;where('created_at', '&lt;', $cutoff)
+            -&gt;chunkById(100, function ($orders) use (&amp;$count) {
+                foreach ($orders as $order) {
+                    $order-&gt;update(['status' =&gt; 'cancelled']);
+                    $count++;
+                }
+            });
+
+        $this-&gt;info("{$count} سفارش لغو شد.");
+
+        return self::SUCCESS;
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan orders:cancel-unpaid               # با ۳۰ دقیقه‌ی پیش‌فرض
+php artisan orders:cancel-unpaid --minutes=60</code></pre></div></div></section><section class="lesson" id="schedule"><div class="lesson-head"><span class="lesson-num">۳</span><h2>زمان‌بندی در routes/console.php</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+use App\Jobs\SendDailyReport;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schedule;
+
+Schedule::command('orders:cancel-unpaid')
+    -&gt;everyFiveMinutes()
+    -&gt;withoutOverlapping();                 // اگر اجرای قبلی تمام نشده، دوباره شروع نکن
+
+Schedule::job(new SendDailyReport)
+    -&gt;dailyAt('08:00')
+    -&gt;timezone('Asia/Tehran');
+
+Schedule::call(function () {
+    DB::table('password_reset_tokens')-&gt;where('created_at', '&lt;', now()-&gt;subDay())-&gt;delete();
+})-&gt;hourly()-&gt;name('prune-reset-tokens');
+
+Schedule::command('model:prune')-&gt;daily();                       // مدل‌های Prunable
+Schedule::command('backup:run')-&gt;weeklyOn(6, '03:00');            // شنبه‌ها ساعت ۳ (۶ = شنبه، ۰ = یکشنبه)</code></pre></div></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>متد</th><th>اجرا</th></tr></thead><tbody><tr><td><code>everyMinute()</code> / <code>everyFiveMinutes()</code></td><td>هر ۱ / ۵ دقیقه</td></tr><tr><td><code>hourly()</code> / <code>daily()</code></td><td>هر ساعت / هر روز ۰۰:۰۰</td></tr><tr><td><code>dailyAt('13:00')</code></td><td>هر روز ساعت مشخص</td></tr><tr><td><code>weeklyOn(1, '8:00')</code></td><td>هفتگی (۱ = دوشنبه)</td></tr><tr><td><code>monthlyOn(1, '02:00')</code></td><td>اول هر ماه</td></tr><tr><td><code>cron('*/10 * * * *')</code></td><td>عبارت Cron دلخواه</td></tr></tbody></table></div><div class="note info"><div class="note-title">دستور backup:run</div><p>مثال بالا فقط برای نمایش است و نیازمند پکیج‌های بکاپ (مثل spatie/laravel-backup) است. دستور خودت را جایگزین کن.</p></div></section><section class="lesson" id="run"><div class="lesson-head"><span class="lesson-num">۴</span><h2>راه‌اندازی روی سرور</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code># توسعه‌ی محلی: اجرای دائمی زمان‌بند
+php artisan schedule:work
+
+# دیدن فهرست کارها و زمان اجرای بعدی
+php artisan schedule:list
+
+# اجرای یک‌باره‌ی کارهای «سررسید شده»
+php artisan schedule:run</code></pre></div></div><p>روی سرور واقعی فقط همین یک Cron را اضافه می‌کنی (در cPanel بخش Cron Jobs، روی VPS با <code>crontab -e</code>) تا هر دقیقه لاراول بررسی کند چه کاری سررسید شده:</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">text</span></div><pre><code>* * * * * cd /path/to/your-project &amp;&amp; php artisan schedule:run &gt;&gt; /dev/null 2&gt;&amp;1</code></pre></div></div><div class="note warn"><div class="note-title">اگر Cron نباشد</div><p>هیچ‌کدام از کارهای زمان‌بندی‌شده اجرا نمی‌شوند و خطایی هم نمی‌بینی. بعد از دیپلوی حتماً با <code>schedule:list</code> و بررسی لاگ مطمئن شو Cron واقعاً می‌دود.</p></div></section><section class="lesson" id="good"><div class="lesson-head"><span class="lesson-num">۵</span><h2>عادت‌های درست</h2></div><ul><li><code>withoutOverlapping()</code> برای کارهای طولانی تا دو نمونه هم‌زمان اجرا نشوند.</li><li><code>onOneServer()</code> اگر چند سرور داری تا کار فقط یک‌بار اجرا شود (نیازمند Cache مشترک).</li><li>کار سنگین را Job کن (<code>Schedule::job</code>) تا زمان‌بند معطل نماند.</li><li>هر دستور باید «idempotent» باشد: اگر دوبار اجرا شد ضرری نزند.</li><li>برای خطا اعلان بگیر: <code>->onFailure(fn () => ...)</code> یا لاگ را مانیتور کن.</li></ul></section><section class="lesson" id="test"><div class="lesson-head"><span class="lesson-num">۶</span><h2>تست دستور</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Tests\Feature;
+
+use App\Models\Order;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class CancelUnpaidOrdersTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_old_pending_orders_are_cancelled(): void
+    {
+        $old = Order::factory()-&gt;create(['status' =&gt; 'pending', 'created_at' =&gt; now()-&gt;subHours(2)]);
+        $new = Order::factory()-&gt;create(['status' =&gt; 'pending', 'created_at' =&gt; now()-&gt;subMinutes(5)]);
+
+        $this-&gt;artisan('orders:cancel-unpaid')-&gt;assertSuccessful();
+
+        $this-&gt;assertSame('cancelled', $old-&gt;fresh()-&gt;status);
+        $this-&gt;assertSame('pending', $new-&gt;fresh()-&gt;status);
+    }
+}</code></pre></div></div></section><section class="lesson" id="safety" data-deep="1"><div class="lesson-head"><span class="lesson-num">۷</span><h2>جلوگیری از هم‌پوشانی، چند سرور و اجرا در پس‌زمینه</h2></div><p>زمان‌بندی ساده کار می‌کند تا روزی که یک کار طولانی‌تر از فاصله‌اش طول بکشد؛ آن‌وقت دو نمونه هم‌زمان اجرا می‌شود و داده خراب می‌شود. این گزینه‌ها برای همین‌اند:</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// routes/console.php
+use Illuminate\Support\Facades\Schedule;
+
+Schedule::command('reports:daily')
+    -&gt;dailyAt('02:00')
+    -&gt;timezone('Asia/Tehran')
+    -&gt;withoutOverlapping(30)      // اگر اجرای قبلی هنوز تمام نشده، رد کن (قفل حداکثر ۳۰ دقیقه)
+    -&gt;onOneServer()               // با چند سرور فقط روی یکی اجرا شود (نیاز به کش مشترک: Redis/DB)
+    -&gt;runInBackground()           // کارهای دیگر منتظر این یکی نمانند
+    -&gt;environments(['production']);
+
+Schedule::command('orders:release-unpaid')
+    -&gt;everyFiveMinutes()
+    -&gt;between('08:00', '23:00')
+    -&gt;when(fn () =&gt; config('shop.auto_release'))   // فقط اگر شرط برقرار بود
+    -&gt;evenInMaintenanceMode();                      // در حالت تعمیر هم اجرا شود</code></pre></div></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>متد</th><th>کاربرد</th></tr></thead><tbody><tr><td><code>withoutOverlapping()</code></td><td>جلوگیری از اجرای هم‌زمان دو نمونه‌ی یک کار</td></tr><tr><td><code>onOneServer()</code></td><td>در معماری چندسروری فقط یک سرور کار را اجرا کند</td></tr><tr><td><code>runInBackground()</code></td><td>کار طولانی بقیه‌ی زمان‌بندی را عقب نیندازد</td></tr><tr><td><code>timezone()</code></td><td>ساعت به وقت تهران (پیش‌فرض ساعت <code>APP_TIMEZONE</code> است)</td></tr><tr><td><code>between()</code> / <code>when()</code> / <code>environments()</code></td><td>محدودکردن اجرا به بازه‌ی ساعتی، شرط یا محیط</td></tr></tbody></table></div><div class="note warn"><div class="note-title">قفل‌ها و کش</div><p><code>withoutOverlapping</code> و <code>onOneServer</code> با قفل کش کار می‌کنند. اگر <code>CACHE_STORE=array</code> باشد قفل بی‌اثر است؛ از <code>database</code> یا <code>redis</code> استفاده کن.</p></div></section><section class="lesson" id="monitor" data-deep="1"><div class="lesson-head"><span class="lesson-num">۸</span><h2>نظارت: بفهم کار اجرا شد یا نه</h2></div><p>بدترین حالت این است که زمان‌بندی ماه‌ها خاموش بماند و کسی نفهمد. لاراول چند قلاب برای نظارت دارد:</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>Schedule::command('backup:run')
+    -&gt;dailyAt('03:00')
+    -&gt;onSuccess(fn () =&gt; logger()-&gt;info('backup ok'))
+    -&gt;onFailure(fn () =&gt; Notification::route('mail', 'admin@example.com')-&gt;notify(new BackupFailed()))
+    -&gt;emailOutputOnFailure('admin@example.com')       // خروجی خطا را ایمیل کن
+    -&gt;appendOutputTo(storage_path('logs/backup.log')); // خروجی را در فایل ذخیره کن</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan schedule:list        # فهرست کارها و زمان اجرای بعدی
+php artisan schedule:run         # یک بار اجرای کارهای «موعدرسیده» (همان که cron صدا می‌زند)
+php artisan schedule:test        # انتخاب و اجرای دستی یک کار برای تست
+php artisan schedule:work        # شبیه‌ساز محلی: هر دقیقه اجرا می‌کند، بدون cron</code></pre></div></div><p>برای نظارت بیرونی می‌توانی از سرویس‌هایی مثل Healthchecks.io یا Uptime Kuma (خودمیزبان) استفاده کنی: بعد از هر اجرای موفق یک آدرس را صدا بزن و اگر چند دقیقه صدا نخورد، هشدار بگیرد.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>Schedule::command('reports:daily')
+    -&gt;dailyAt('02:00')
+    -&gt;pingBefore('https://hc-ping.example/uuid/start')
+    -&gt;thenPing('https://hc-ping.example/uuid');</code></pre></div></div></section><section class="lesson" id="cron" data-deep="1"><div class="lesson-head"><span class="lesson-num">۹</span><h2>راه‌اندازی روی سرور واقعی</h2></div><p>زمان‌بند لاراول یک ورودی cron می‌خواهد که <b>هر دقیقه</b> <code>schedule:run</code> را صدا بزند؛ بقیه‌ی تصمیم‌ها را خود لاراول می‌گیرد.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>crontab -e
+* * * * * cd /var/www/shop &amp;&amp; php artisan schedule:run &gt;&gt; /dev/null 2&gt;&amp;1</code></pre></div></div><ul><li>مسیر PHP را کامل بنویس اگر چند نسخه داری: <code>/usr/bin/php8.3</code> (با <code>which php</code> پیدایش کن).</li><li>cron را با <b>همان کاربری</b> تنظیم کن که وب‌سرور و Queue با آن اجرا می‌شوند تا مالک فایل‌های <code>storage</code> به‌هم نریزد.</li><li>روی هاست اشتراکی (cPanel): در بخش Cron Jobs همان دستور را با فاصله‌ی «هر دقیقه» ثبت کن.</li><li>در Docker: سرویس جدا با <code>php artisan schedule:work</code> (در درس Docker دیدی).</li><li>ساعت سرور را با <code>date</code> چک کن و منطقه‌ی زمانی را با <code>APP_TIMEZONE=Asia/Tehran</code> بگذار.</li></ul><h3>کارهای نگه‌داری که حتماً زمان‌بندی کن</h3><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>Schedule::command('model:prune')-&gt;daily();                       // حذف رکوردهای قدیمی مدل‌هایی که Prunable هستند
+Schedule::command('queue:prune-batches --hours=48')-&gt;daily();
+Schedule::command('sanctum:prune-expired --hours=24')-&gt;daily();  // توکن‌های منقضی‌شده
+Schedule::command('queue:prune-failed --hours=168')-&gt;weekly();   // Jobهای شکست‌خورده‌ی قدیمی</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// app/Models/Cart.php: سبدهای رهاشده‌ی بیش از ۳۰ روز پاک شوند
+use Illuminate\Database\Eloquent\Prunable;
+
+class Cart extends Model
+{
+    use Prunable;
+
+    public function prunable()
+    {
+        return static::where('updated_at', '&lt;=', now()-&gt;subDays(30));
+    }
+}</code></pre></div></div></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۱۰</span><h2>اشتباه‌های رایج</h2></div><ol><li>فراموش‌کردن Cron روی سرور (مهم‌ترین!).</li><li>ساعت‌ها: زمان سرور و <code>timezone</code> برنامه را چک کن؛ برای ساعت تهران <code>->timezone('Asia/Tehran')</code> بده.</li><li>کار طولانی داخل <code>call()</code> که همه‌ی زمان‌بندها را عقب می‌اندازد.</li><li>نبود <code>withoutOverlapping</code> و اجرای هم‌زمان چندباره.</li><li>تغییر دستور و ندیدن اثر: روی هاست‌ها گاهی Cache پیکربندی را با <code>php artisan config:clear</code> پاک کن.</li><li>فراموش‌کردن ورودی cron؛ در محیط محلی با <code>schedule:work</code> کار می‌کند ولی روی سرور هیچ اتفاقی نمی‌افتد.</li><li><code>onOneServer</code> با کش <code>array</code> یا فایل محلی (قفل کار نمی‌کند).</li><li>اجرای cron با کاربر <code>root</code> و ساخته‌شدن فایل‌های لاگ با مالک اشتباه.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>دستور <code>products:low-stock</code> بساز که محصولات با موجودی کمتر از ۵ را در لاگ بنویسد و هر روز ساعت ۹ صبح اجرا شود.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li><code>schedule:work</code> را اجرا کن و کاری بنویس که هر دقیقه یک خط در لاگ بزند؛ سپس با <code>schedule:list</code> ببین.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>برای دستور لغو سفارش، تستی بنویس که سفارش‌های «paid» را لمس نکند.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۴</div><ol><li>یک دستور <code>orders:release-unpaid</code> بنویس که سفارش‌های پرداخت‌نشده‌ی بیش از ۳۰ دقیقه را لغو کند و آن را هر ۵ دقیقه با <code>withoutOverlapping</code> زمان‌بندی کن.</li><li>با <code>schedule:list</code> مطمئن شو ثبت شده و با <code>schedule:test</code> آن را دستی اجرا کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۵</div><ol><li>مدل <code>Cart</code> را Prunable کن و با <code>php artisan model:prune --pretend</code> ببین چه چیزهایی حذف می‌شوند.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://laravel.com/docs/13.x/scheduling" target="_blank" rel="noopener">Task Scheduling</a> — <a href="https://laravel.com/docs/13.x/artisan" target="_blank" rel="noopener">Artisan Console</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="l2-mail-sms.html">→ بخش قبل: ایمیل و پیامک</a><a href="l2-persian-rtl.html">بعدی: فارسی‌سازی: RTL و تاریخ شمسی ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

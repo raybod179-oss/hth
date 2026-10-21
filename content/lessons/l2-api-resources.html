@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۲ · درس 3 | ساخت API و Resource</title><meta name="description" content="ساخت API در لاراول: apiResource، API Resource، whenLoaded، Validation، کد وضعیت HTTP، تست JSON و نسخه‌بندی.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۲ · درس 3</span><h1>ساخت API و Resource</h1><p>با API، فروشگاه تو برای اپ موبایل، فرانت جدا و سرویس‌های دیگر قابل‌استفاده می‌شود. این درس خروجی تمیز، امن و قابل‌تست را نشانت می‌دهد.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#what">API چیست؟</a></li><li><a href="#routes">روت‌ها و کنترلر API</a></li><li><a href="#resource">API Resource: شکل‌دادن به خروجی</a></li><li><a href="#controller">کنترلر کامل با Validation و کد وضعیت درست</a></li><li><a href="#test">تست با curl و تست خودکار</a></li><li><a href="#limits">Rate Limiting و امنیت پایه</a></li><li><a href="#shaping">شکل‌دهی پاسخ: شرطی‌ها، رابطه‌ها و صفحه‌بندی</a></li><li><a href="#query-params">فیلتر، مرتب‌سازی و جست‌وجوی امن</a></li><li><a href="#versioning">نسخه‌بندی، مستندات و قرارداد پایدار</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="what"><div class="lesson-head"><span class="lesson-num">۱</span><h2>API چیست؟</h2></div><p>API راهی است که برنامه‌ها (اپ موبایل، سایت فرانت‌اند جدا، سرویس‌های دیگر) با سرور تو <b>داده‌ی JSON</b> رد و بدل کنند، نه صفحه‌ی HTML. اگر روزی اپ اندروید یا یک فرانت React برای همین فروشگاه بخواهی، همین API را صدا می‌زنند.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">json</span></div><pre><code>{
+  "data": {
+    "id": 1,
+    "title": "کیبورد",
+    "price": 850000
+  }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan install:api     # فعال‌سازی routes/api.php و Sanctum (آدرس‌ها با /api شروع می‌شوند)</code></pre></div></div><div class="note warn"><div class="note-title">هدر Accept</div><p>هنگام تست API هدر <code>Accept: application/json</code> را بفرست؛ وگرنه لاراول در خطا (مثل Validation) به‌جای JSON تو را redirect می‌کند و فکر می‌کنی API خراب است.</p></div></section><section class="lesson" id="routes"><div class="lesson-head"><span class="lesson-num">۲</span><h2>روت‌ها و کنترلر API</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+// routes/api.php
+use App\Http\Controllers\Api\ProductController;
+use Illuminate\Support\Facades\Route;
+
+Route::prefix('v1')-&gt;group(function () {
+    Route::apiResource('products', ProductController::class);
+});
+
+// apiResource این ۵ روت را می‌سازد (بدون create/edit که مخصوص HTML هستند):
+// GET    /api/v1/products
+// POST   /api/v1/products
+// GET    /api/v1/products/{product}
+// PUT    /api/v1/products/{product}
+// DELETE /api/v1/products/{product}</code></pre></div></div><p>نسخه‌بندی (<code>v1</code>) باعث می‌شود بعداً بتوانی ساختار را عوض کنی بدون اینکه اپ‌های قدیمی خراب شوند.</p></section><section class="lesson" id="resource"><div class="lesson-head"><span class="lesson-num">۳</span><h2>API Resource: شکل‌دادن به خروجی</h2></div><p>هرگز مدل را مستقیم برنگردان؛ ستون‌های داخلی (مثل رمز یا فیلدهای حساس) ممکن است لو بروند. با Resource دقیقاً مشخص می‌کنی چه چیزی خارج شود.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>php artisan make:resource ProductResource</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Http\Resources;
+
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+class ProductResource extends JsonResource
+{
+    public function toArray(Request $request): array
+    {
+        return [
+            'id'       =&gt; $this-&gt;id,
+            'title'    =&gt; $this-&gt;title,
+            'price'    =&gt; $this-&gt;price,
+            'in_stock' =&gt; $this-&gt;stock &gt; 0,
+            // فقط وقتی با with('category') لود شده باشد (جلوی N+1)
+            'category' =&gt; new CategoryResource($this-&gt;whenLoaded('category')),
+            // فقط برای ادمین
+            'stock'    =&gt; $this-&gt;when($request-&gt;user()?-&gt;role === 'admin', $this-&gt;stock),
+            'created_at' =&gt; $this-&gt;created_at?-&gt;toIso8601String(),
+        ];
+    }
+}</code></pre></div></div></section><section class="lesson" id="controller"><div class="lesson-head"><span class="lesson-num">۴</span><h2>کنترلر کامل با Validation و کد وضعیت درست</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Http\Resources\ProductResource;
+use App\Models\Product;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+
+class ProductController extends Controller
+{
+    public function index(Request $request)
+    {
+        $products = Product::with('category')
+            -&gt;when($request-&gt;query('q'), fn ($q, $t) =&gt; $q-&gt;where('title', 'like', "%{$t}%"))
+            -&gt;latest()
+            -&gt;paginate(12);
+
+        // Resource خودش pagination (links و meta) را هم اضافه می‌کند
+        return ProductResource::collection($products);
+    }
+
+    public function store(Request $request): JsonResponse
+    {
+        $data = $request-&gt;validate([
+            'title'       =&gt; ['required', 'string', 'max:200'],
+            'price'       =&gt; ['required', 'integer', 'min:0'],
+            'stock'       =&gt; ['required', 'integer', 'min:0'],
+            'category_id' =&gt; ['required', 'exists:categories,id'],
+        ]);
+
+        $product = Product::create($data);
+
+        return (new ProductResource($product))
+            -&gt;response()
+            -&gt;setStatusCode(Response::HTTP_CREATED);   // 201
+    }
+
+    public function show(Product $product): ProductResource
+    {
+        return new ProductResource($product-&gt;load('category'));
+    }
+
+    public function update(Request $request, Product $product): ProductResource
+    {
+        $data = $request-&gt;validate([
+            'title' =&gt; ['sometimes', 'string', 'max:200'],
+            'price' =&gt; ['sometimes', 'integer', 'min:0'],
+        ]);
+
+        $product-&gt;update($data);
+
+        return new ProductResource($product);
+    }
+
+    public function destroy(Product $product): Response
+    {
+        $product-&gt;delete();
+
+        return response()-&gt;noContent();   // 204
+    }
+}</code></pre></div></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>وضعیت</th><th>کد</th></tr></thead><tbody><tr><td>موفق (خواندن/ویرایش)</td><td><code>200</code></td></tr><tr><td>ساخته شد</td><td><code>201</code></td></tr><tr><td>موفق بدون بدنه (حذف)</td><td><code>204</code></td></tr><tr><td>ورودی نامعتبر (Validation)</td><td><code>422</code></td></tr><tr><td>نیاز به ورود</td><td><code>401</code></td></tr><tr><td>دسترسی ندارد</td><td><code>403</code></td></tr><tr><td>پیدا نشد</td><td><code>404</code></td></tr></tbody></table></div></section><section class="lesson" id="test"><div class="lesson-head"><span class="lesson-num">۵</span><h2>تست با curl و تست خودکار</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>curl -H "Accept: application/json" http://localhost:8000/api/v1/products
+
+curl -X POST http://localhost:8000/api/v1/products \
+  -H "Accept: application/json" -H "Content-Type: application/json" \
+  -d '{"title":"ماوس","price":420000,"stock":10,"category_id":1}'</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace Tests\Feature;
+
+use App\Models\Product;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class ProductApiTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_it_lists_products(): void
+    {
+        Product::factory()-&gt;count(3)-&gt;create();
+
+        $this-&gt;getJson('/api/v1/products')
+             -&gt;assertOk()
+             -&gt;assertJsonCount(3, 'data')
+             -&gt;assertJsonStructure(['data' =&gt; [['id', 'title', 'price']], 'links', 'meta']);
+    }
+
+    public function test_it_validates_input(): void
+    {
+        $this-&gt;postJson('/api/v1/products', [])
+             -&gt;assertStatus(422)
+             -&gt;assertJsonValidationErrors(['title', 'price']);
+    }
+}</code></pre></div></div><p>برای تست دستی، برنامه‌هایی مثل Postman، Insomnia یا افزونه‌ی Thunder Client در VS Code راحت‌تر از curl هستند.</p></section><section class="lesson" id="limits"><div class="lesson-head"><span class="lesson-num">۶</span><h2>Rate Limiting و امنیت پایه</h2></div><ul><li>محدودیت تعداد درخواست با middleware <code>throttle:60,1</code> یا تعریف نام‌دار در <code>AppServiceProvider</code> با <code>RateLimiter::for('api', ...)</code>.</li><li>هیچ‌وقت <code>$request->all()</code> را مستقیم داخل <code>create()</code> نگذار؛ همیشه <code>validated()</code> یا فیلدهای مجاز.</li><li>خروجی‌ها را با Resource کنترل کن؛ فیلدهای حساس را برنگردان.</li><li>برای مسیرهای خصوصی، احراز هویت Sanctum (درس بعد) و Policy برای دسترسی به رکورد.</li></ul></section><section class="lesson" id="shaping" data-deep="1"><div class="lesson-head"><span class="lesson-num">۷</span><h2>شکل‌دهی پاسخ: شرطی‌ها، رابطه‌ها و صفحه‌بندی</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>class ProductResource extends JsonResource
+{
+    public function toArray(Request $request): array
+    {
+        return [
+            'id'       =&gt; $this-&gt;id,
+            'name'     =&gt; $this-&gt;name,
+            'price'    =&gt; $this-&gt;price,
+            'image'    =&gt; $this-&gt;image ? asset('storage/' . $this-&gt;image) : null,
+            // فقط وقتی Eager Load شده؛ جلوگیری از N+1 در API
+            'category' =&gt; new CategoryResource($this-&gt;whenLoaded('category')),
+            'reviews_count' =&gt; $this-&gt;whenCounted('reviews'),
+            // فقط برای ادمین
+            'cost'     =&gt; $this-&gt;when($request-&gt;user()?-&gt;is_admin, $this-&gt;cost),
+            'created_at' =&gt; $this-&gt;created_at-&gt;toIso8601String(),
+        ];
+    }
+}
+
+// کنترلر
+public function index(Request $request)
+{
+    $products = Product::with('category')-&gt;withCount('reviews')
+        -&gt;latest()-&gt;paginate($request-&gt;integer('per_page', 15));
+
+    return ProductResource::collection($products);   // meta و links صفحه‌بندی خودکار اضافه می‌شود
+}</code></pre></div></div><ul><li><code>whenLoaded</code> و <code>whenCounted</code> کلید را در صورت نبودن رابطه حذف می‌کنند و کوئری اضافه نمی‌زنند.</li><li><code>per_page</code> را حتماً سقف بگذار: <code>min($request->integer('per_page', 15), 100)</code>، وگرنه کاربر <code>per_page=100000</code> می‌فرستد.</li><li>تاریخ را همیشه <code>ISO 8601</code> بده؛ تبدیل به شمسی کار کلاینت است.</li></ul></section><section class="lesson" id="query-params" data-deep="1"><div class="lesson-head"><span class="lesson-num">۸</span><h2>فیلتر، مرتب‌سازی و جست‌وجوی امن</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>public function index(Request $request)
+{
+    $allowedSorts = ['price', 'created_at', 'name'];
+    $sort = in_array($request-&gt;query('sort'), $allowedSorts, true) ? $request-&gt;query('sort') : 'created_at';
+    $dir  = $request-&gt;query('dir') === 'asc' ? 'asc' : 'desc';
+
+    $products = Product::query()
+        -&gt;when($request-&gt;filled('category'), fn ($q) =&gt; $q-&gt;where('category_id', $request-&gt;integer('category')))
+        -&gt;when($request-&gt;filled('min_price'), fn ($q) =&gt; $q-&gt;where('price', '&gt;=', $request-&gt;integer('min_price')))
+        -&gt;when($request-&gt;filled('q'), fn ($q) =&gt; $q-&gt;where('name', 'like', '%' . $request-&gt;string('q') . '%'))
+        -&gt;orderBy($sort, $dir)
+        -&gt;paginate(min($request-&gt;integer('per_page', 15), 100));
+
+    return ProductResource::collection($products);
+}</code></pre></div></div><div class="note warn"><div class="note-title">Whitelist</div><p>هرگز نام ستون مرتب‌سازی را مستقیم از ورودی کاربر به <code>orderBy</code> نده؛ فقط از فهرست مجاز استفاده کن.</p></div><h3>خطاهای یکدست JSON</h3><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// bootstrap/app.php
+-&gt;withExceptions(function (Exceptions $exceptions) {
+    $exceptions-&gt;render(function (\Illuminate\Database\Eloquent\ModelNotFoundException $e, Request $request) {
+        if ($request-&gt;is('api/*')) {
+            return response()-&gt;json(['message' =&gt; 'پیدا نشد'], 404);
+        }
+    });
+    $exceptions-&gt;shouldRenderJsonWhen(fn (Request $request) =&gt; $request-&gt;is('api/*') || $request-&gt;expectsJson());
+})</code></pre></div></div></section><section class="lesson" id="versioning" data-deep="1"><div class="lesson-head"><span class="lesson-num">۹</span><h2>نسخه‌بندی، مستندات و قرارداد پایدار</h2></div><ul><li><b>نسخه در آدرس:</b> <code>/api/v1/products</code>. تغییر شکننده (حذف/تغییر نام فیلد) فقط در <code>v2</code>؛ در <code>v1</code> فقط افزودن فیلد مجاز است.</li><li><b>Idempotency:</b> برای پرداخت و ثبت سفارش، هدر <code>Idempotency-Key</code> بگیر و تکرار درخواست را نادیده بگیر تا دو بار کسر نشود.</li><li><b>قالب خطا:</b> همیشه <code>message</code> و برای اعتبارسنجی <code>errors</code> (لاراول به‌طور پیش‌فرض ۴۲۲ با همین قالب می‌دهد).</li><li><b>کدهای وضعیت:</b> ۲۰۱ ساخت، ۲۰۴ حذف، ۴۰۱ ورود نکرده، ۴۰۳ بدون دسترسی، ۴۰۴ پیدا نشد، ۴۲۲ ورودی نامعتبر، ۴۲۹ سقف نرخ.</li><li><b>مستندات خودکار:</b> ابزارهایی مثل <b>Scramble</b> (OpenAPI از روی کد) یا <b>Scribe</b> مستندات تعاملی می‌سازند؛ یک API بدون مستندات برای تیم/مشتری ناقص است.</li></ul><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// routes/api.php
+Route::prefix('v1')-&gt;middleware(['auth:sanctum', 'throttle:api'])-&gt;group(function () {
+    Route::apiResource('products', Api\V1\ProductController::class);
+});</code></pre></div></div></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۱۰</span><h2>اشتباه‌های رایج</h2></div><ol><li>فرستادن درخواست بدون <code>Accept: application/json</code> و دیدن صفحه‌ی HTML به‌جای خطای JSON.</li><li>برگرداندن مدل خام و لو رفتن فیلدهای حساس.</li><li>همه‌ی خطاها را با کد ۲۰۰ برگرداندن؛ کلاینت نمی‌فهمد چه شده.</li><li>N+1 در Resource: رابطه را با <code>with</code> لود کن و در Resource از <code>whenLoaded</code> استفاده کن.</li><li>تغییر ساختار خروجی بدون نسخه‌بندی و خراب‌شدن اپ‌های قدیمی.</li><li>اجازه‌ی <code>per_page</code> نامحدود به کلاینت.</li><li>مرتب‌سازی با نام ستونِ مستقیم از ورودی کاربر (خطر Injection و افشای ساختار).</li><li>تغییر نام فیلد در همان نسخه‌ی API و خراب‌شدن اپ‌های موبایل کاربران.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>API دسته‌بندی‌ها را با <code>CategoryResource</code> و <code>apiResource</code> بساز.</li><li>یک فیلتر <code>?min_price=</code> و <code>?max_price=</code> به لیست محصولات اضافه کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li>تست بنویس که حذف محصول ۲۰۴ برگرداند و بعدش <code>assertDatabaseMissing</code> بزن.</li><li>تست ۴۰۴ برای محصول ناموجود بنویس.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>مستندات ساده‌ی API را در یک فایل <code>API.md</code> بنویس: آدرس، متد، پارامترها و نمونه‌ی پاسخ.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۴</div><ol><li>فیلتر قیمت، دسته، جست‌وجو و مرتب‌سازی (با Whitelist) را به API محصولات اضافه کن و برایش تست Feature بنویس.</li><li><code>whenLoaded</code> را در Resource خودت به‌کار ببر و با Debugbar/Telescope ببین کوئری اضافه نمی‌خورد.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۵</div><ol><li>API را زیر <code>/api/v1</code> ببر و قالب خطای JSON یکدست برای ۴۰۴ و ۴۲۲ بساز.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://laravel.com/docs/13.x/eloquent-resources" target="_blank" rel="noopener">Eloquent: API Resources</a> — <a href="https://laravel.com/docs/13.x/controllers#api-resource-routes" target="_blank" rel="noopener">Routing: API Resource Routes</a> — <a href="https://laravel.com/docs/13.x/routing#rate-limiting" target="_blank" rel="noopener">Rate Limiting</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="l2-testing.html">→ بخش قبل: تست‌نویسی (Feature و Unit)</a><a href="l2-sanctum.html">بعدی: احراز هویت API با Sanctum ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

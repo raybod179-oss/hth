@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۰ · درس ۵ | مبانی PHP ۳: شی‌گرایی (OOP)</title><meta name="description" content="کلاس، شیء، سازنده، سطح دسترسی، static، ارث‌بری، interface، trait و enum در PHP با مثال‌های نزدیک به لاراول.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۰ · درس ۵</span><h1>مبانی PHP ۳: شی‌گرایی (OOP)</h1><p>اگر فقط یک درس PHP را جدی بخوانی باید همین باشد؛ چون لاراول از اول تا آخر شی‌گراست. آرام و قدم‌به‌قدم جلو می‌رویم و هر مفهوم را به یک تکه از لاراول وصل می‌کنیم.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#why">چرا شی‌گرایی؟</a></li><li><a href="#class">کلاس، ویژگی و متد</a></li><li><a href="#promotion">سازنده‌ی کوتاه (Constructor Promotion) و readonly</a></li><li><a href="#visibility">سطح دسترسی: public، protected، private</a></li><li><a href="#static">static و const</a></li><li><a href="#inherit">ارث‌بری، abstract و interface</a></li><li><a href="#ns">Namespace، Trait و Enum</a></li><li><a href="#project">گام پروژه: Product و Cart شی‌گرا</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="why"><div class="lesson-head"><span class="lesson-num">۱</span><h2>چرا شی‌گرایی؟</h2></div><p>تا اینجا کد را به‌صورت «تابع و آرایه» نوشتیم. در پروژه‌های واقعی، داده و رفتارِ مرتبط را در یک بسته به نام <b>کلاس</b> کنار هم می‌گذاریم. <b>شیء (Object)</b> یک نمونه‌ی ساخته‌شده از آن کلاس است.</p><p>نکته‌ی مهم برای این دوره: در لاراول <b>هر چیزی کلاس است</b>؛ کنترلر، مدل، Middleware، ایمیل، Job. اگر این درس را خوب بفهمی، بقیه‌ی دوره بدون ترس جلو می‌رود.</p><div class="note info"><div class="note-title">مثال زندگی</div><p>کلاس مثل «نقشه‌ی ساختمان» است و شیء مثل «ساختمان ساخته‌شده». از یک نقشه می‌شود ده ساختمان ساخت که هرکدام رنگ و طبقه‌ی خودشان را دارند.</p></div></section><section class="lesson" id="class"><div class="lesson-head"><span class="lesson-num">۲</span><h2>کلاس، ویژگی و متد</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+class Product
+{
+    public string $title;
+    public int $price;
+
+    // سازنده: هنگام ساخت شیء اجرا می‌شود
+    public function __construct(string $title, int $price)
+    {
+        $this-&gt;title = $title;
+        $this-&gt;price = $price;
+    }
+
+    public function priceWithTax(float $rate = 0.09): int
+    {
+        return (int) round($this-&gt;price * (1 + $rate));
+    }
+}
+
+$a = new Product("کیبورد", 850000);
+$b = new Product("ماوس", 420000);
+
+echo $a-&gt;title, ": ", $a-&gt;priceWithTax(), "\n";
+echo $b-&gt;title, ": ", $b-&gt;priceWithTax(0.2);</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>کیبورد: 926500
+ماوس: 504000</code></pre></div></div><p><code>$this</code> یعنی «همین شیء». فلش <code>-&gt;</code> برای دسترسی به ویژگی یا متد است (در لاراول هزاران بار می‌بینی‌اش).</p></section><section class="lesson" id="promotion"><div class="lesson-head"><span class="lesson-num">۳</span><h2>سازنده‌ی کوتاه (Constructor Promotion) و readonly</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+class Product
+{
+    public function __construct(
+        public readonly string $title,
+        public readonly int $price,
+    ) {}
+}
+
+$p = new Product("هدفون", 1200000);
+echo $p-&gt;title, "\n";
+
+try {
+    $p-&gt;price = 1;           // readonly است؛ خطا می‌دهد
+} catch (Error $e) {
+    echo "خطا: ", $e-&gt;getMessage();
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>هدفون
+خطا: Cannot modify readonly property Product::$price</code></pre></div></div><div class="note tip"><div class="note-title">readonly</div><p>برای داده‌هایی که بعد از ساخت نباید عوض شوند (مثل مبلغ یک سفارش) <code>readonly</code> جلوی باگ‌های ریز را می‌گیرد. کد لاراول مدرن زیاد از این سبک استفاده می‌کند.</p></div></section><section class="lesson" id="visibility"><div class="lesson-head"><span class="lesson-num">۴</span><h2>سطح دسترسی: public، protected، private</h2></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>کلمه</th><th>از کجا قابل دسترسی است؟</th></tr></thead><tbody><tr><td><code>public</code></td><td>از هرجا</td></tr><tr><td><code>protected</code></td><td>فقط خود کلاس و کلاس‌های فرزند</td></tr><tr><td><code>private</code></td><td>فقط خود کلاس</td></tr></tbody></table></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+class Wallet
+{
+    private int $balance = 0;       // بیرون نمی‌شود مستقیم تغییرش داد
+
+    public function deposit(int $amount): void
+    {
+        if ($amount &lt;= 0) {
+            throw new InvalidArgumentException("مبلغ باید مثبت باشد");
+        }
+        $this-&gt;balance += $amount;
+    }
+
+    public function balance(): int
+    {
+        return $this-&gt;balance;
+    }
+}
+
+$w = new Wallet();
+$w-&gt;deposit(50000);
+echo $w-&gt;balance();          // 50000
+// $w-&gt;balance = 999;       // خطا! private است</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>50000</code></pre></div></div><p>به این کار می‌گویند «کپسوله‌سازی»: داده را پشت متدها پنهان می‌کنیم تا همیشه قوانین (مثل مثبت‌بودن مبلغ) رعایت شود. در پروژه‌ی مارکت‌پلیس همین الگو را برای کیف پول استفاده می‌کنیم.</p></section><section class="lesson" id="static"><div class="lesson-head"><span class="lesson-num">۵</span><h2>static و const</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+class Order
+{
+    public const STATUS_PENDING = "pending";
+    public const STATUS_PAID    = "paid";
+
+    public static function statuses(): array
+    {
+        return [self::STATUS_PENDING, self::STATUS_PAID];
+    }
+}
+
+echo Order::STATUS_PAID, "\n";
+print_r(Order::statuses());</code></pre></div></div><p>با <code>::</code> بدون ساختن شیء به ثابت‌ها و متدهای static دسترسی داریم. وقتی در لاراول <code>Route::get()</code> یا <code>User::where()</code> می‌نویسی، همین <code>::</code> است.</p></section><section class="lesson" id="inherit"><div class="lesson-head"><span class="lesson-num">۶</span><h2>ارث‌بری، abstract و interface</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+interface Payable
+{
+    public function pay(int $amount): bool;
+}
+
+abstract class Notifier
+{
+    abstract protected function send(string $to, string $text): void;
+
+    public function welcome(string $to): void
+    {
+        $this-&gt;send($to, "به Rayvo خوش آمدید");
+    }
+}
+
+class SmsNotifier extends Notifier
+{
+    protected function send(string $to, string $text): void
+    {
+        echo "SMS به $to: $text\n";
+    }
+}
+
+class ZarinpalGateway implements Payable
+{
+    public function pay(int $amount): bool
+    {
+        echo "پرداخت $amount تومان\n";
+        return true;
+    }
+}
+
+(new SmsNotifier())-&gt;welcome("09120000000");
+(new ZarinpalGateway())-&gt;pay(50000);</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>SMS به 09120000000: به Rayvo خوش آمدید
+پرداخت 50000 تومان</code></pre></div></div><div class="note info"><div class="note-title">interface یعنی قرارداد</div><p><code>Payable</code> می‌گوید «هر درگاهی باید متد pay داشته باشد». بعداً می‌توانی درگاه را عوض کنی بدون اینکه بقیه‌ی برنامه عوض شود؛ این مفهوم در درس‌های سطح ۲ و ۳ (درگاه پرداخت، Service) خیلی به کار می‌آید.</p></div></section><section class="lesson" id="ns"><div class="lesson-head"><span class="lesson-num">۷</span><h2>Namespace، Trait و Enum</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+namespace App\Models;
+
+use InvalidArgumentException;
+
+trait HasSlug
+{
+    public function slug(): string
+    {
+        return strtolower(str_replace(" ", "-", $this-&gt;title));
+    }
+}
+
+enum Role: string
+{
+    case Admin = "admin";
+    case Student = "student";
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::Admin   =&gt; "مدیر",
+            self::Student =&gt; "دانشجو",
+        };
+    }
+}
+
+class Post
+{
+    use HasSlug;
+    public function __construct(public string $title) {}
+}
+
+echo (new Post("Hello World"))-&gt;slug(), "\n";
+echo Role::from("admin")-&gt;label();</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>hello-world
+مدیر</code></pre></div></div><ul><li><b>Namespace:</b> «پوشه‌بندی منطقی» اسم کلاس‌ها تا تداخل نکنند (مثل <code>App\Models\User</code>).</li><li><b>Trait:</b> مجموعه‌ای از متدها برای استفاده‌ی مجدد داخل چند کلاس (در مدل‌های لاراول زیاد: <code>HasFactory</code>).</li><li><b>Enum:</b> مجموعه‌ی محدود مقادیر ثابت، مثل نقش‌ها و وضعیت‌ها؛ از دست <code>"paid"</code> و <code>"payed"</code> و غلط املایی راحت می‌شوی.</li></ul></section><section class="lesson" id="project"><div class="lesson-head"><span class="lesson-num">۸</span><h2>گام پروژه: Product و Cart شی‌گرا</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+declare(strict_types=1);
+
+final class Product
+{
+    public function __construct(
+        public readonly int $id,
+        public readonly string $title,
+        public readonly int $price,
+    ) {}
+}
+
+final class Cart
+{
+    /** @var array&lt;int, array{product: Product, qty: int}&gt; */
+    private array $items = [];
+
+    public function add(Product $p, int $qty = 1): void
+    {
+        if ($qty &lt; 1) throw new InvalidArgumentException("تعداد نامعتبر");
+        $this-&gt;items[$p-&gt;id] ??= ["product" =&gt; $p, "qty" =&gt; 0];
+        $this-&gt;items[$p-&gt;id]["qty"] += $qty;
+    }
+
+    public function total(): int
+    {
+        return array_sum(array_map(
+            fn($i) =&gt; $i["product"]-&gt;price * $i["qty"],
+            $this-&gt;items
+        ));
+    }
+
+    public function count(): int
+    {
+        return array_sum(array_column($this-&gt;items, "qty"));
+    }
+}
+
+$cart = new Cart();
+$cart-&gt;add(new Product(1, "کیبورد", 850000));
+$cart-&gt;add(new Product(2, "ماوس", 420000), 2);
+$cart-&gt;add(new Product(2, "ماوس", 420000));   // یک عدد دیگر
+
+echo "تعداد: ", $cart-&gt;count(), "\n";
+echo "جمع: ", number_format($cart-&gt;total());</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>تعداد: 4
+جمع: 2,110,000</code></pre></div></div><div class="note tip"><div class="note-title">مقایسه با درس قبل</div><p>همان سبد خرید درس ۲ است، اما حالا قوانینش (حداقل تعداد، جمع‌زدن مشتری‌های تکراری) داخل خود کلاس نگه‌داری می‌شود و بقیه‌ی کد فقط <code>add</code> و <code>total</code> را صدا می‌زند.</p></div></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۹</span><h2>اشتباه‌های رایج</h2></div><ol><li>فراموش کردن <code>new</code> و صدا زدن مستقیم کلاس.</li><li>استفاده از <code>.</code> به‌جای <code>-&gt;</code> برای دسترسی به ویژگی (<code>$p.title</code> غلط است).</li><li>فراموش کردن <code>$this-&gt;</code> داخل متد و ساخت متغیر محلی ناخواسته.</li><li>همه‌چیز را <code>public</code> گذاشتن؛ از <code>private</code> شروع کن و فقط در صورت نیاز باز کن.</li><li>کلاس‌های خیلی بزرگ که همه‌کاره‌اند؛ هر کلاس یک مسئولیت.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱: کلاس User</div><ol><li>کلاس <code>User</code> با ویژگی‌های <code>name</code> و <code>email</code> بساز (سازنده‌ی کوتاه).</li><li>متد <code>initials()</code> بنویس که حرف اول نام را برگرداند (با <code>mb_substr</code>).</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲: Wallet</div><ol><li>به کلاس Wallet متد <code>withdraw</code> اضافه کن که اگر موجودی کافی نبود استثنا بدهد.</li><li>خطا را با <code>try/catch</code> بگیر و پیام مناسب چاپ کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳: Enum وضعیت سفارش</div><ol><li>Enum به نام <code>OrderStatus</code> با سه حالت pending، paid، shipped بساز.</li><li>متد <code>label()</code> برای نمایش فارسی هر وضعیت بنویس.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۴: Interface</div><ol><li>اینترفیس <code>Logger</code> با متد <code>log(string $m)</code> بساز و دو پیاده‌سازی بنویس: یکی با <code>echo</code> و یکی که در فایل بنویسد.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://www.php.net/manual/en/language.oop5.php" target="_blank" rel="noopener">Classes and Objects</a> — <a href="https://www.php.net/manual/en/language.enumerations.php" target="_blank" rel="noopener">Enumerations</a> — <a href="https://www.php.net/manual/en/language.oop5.traits.php" target="_blank" rel="noopener">Traits</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="php-2-arrays-functions.html">→ بخش قبل: مبانی PHP ۲: آرایه و تابع</a><a href="sql-basics.html">بعدی: مبانی SQL و MySQL با phpMyAdmin ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

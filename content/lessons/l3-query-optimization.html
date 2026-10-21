@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۳ · درس 3 | بهینه‌سازی کوئری و کش</title><meta name="description" content="اندازه‌گیری کوئری‌ها با DB::listen، رفع N+1، ایندکس و EXPLAIN، صفحه‌بندی simple و cursor، کش با Cache::remember، عملیات دسته‌ای و تنظیمات پروداکشن.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۳ · درس 3</span><h1>بهینه‌سازی کوئری و کش</h1><p>سایت کند مشتری را فراری می‌دهد. این درس روش علمی بهینه‌سازی را نشانت می‌دهد: اندازه بگیر، علت را پیدا کن، فقط همان را درست کن.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#measure">اول اندازه بگیر</a></li><li><a href="#n1">مرور: N+1 و انتخاب ستون</a></li><li><a href="#index">ایندکس: بزرگ‌ترین اهرم سرعت</a></li><li><a href="#pagination">صفحه‌بندی هوشمند</a></li><li><a href="#cache">کش</a></li><li><a href="#bulk">عملیات دسته‌ای و پردازش حجیم</a></li><li><a href="#prod">تنظیمات پروداکشن</a></li><li><a href="#explain">خواندن EXPLAIN و ایندکس ترکیبی درست</a></li><li><a href="#aggregates">شمارش و جمع بدون کوئری اضافه</a></li><li><a href="#memory">داده‌ی بزرگ بدون پر شدن حافظه</a></li><li><a href="#guards">نگهبان‌های خودکار: جلوگیری از N+1 و شناسایی کوئری کند</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="measure"><div class="lesson-head"><span class="lesson-num">۱</span><h2>اول اندازه بگیر</h2></div><p>بهینه‌سازی بدون اندازه‌گیری حدس است. قبل از تغییر بفهم کدام کوئری‌ها کندند و چند تا هستند.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+namespace App\Providers;
+
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\ServiceProvider;
+
+class AppServiceProvider extends ServiceProvider
+{
+    public function boot(): void
+    {
+        // هر کوئری کندتر از ۱۰۰ میلی‌ثانیه را لاگ کن (در توسعه و حتی پروداکشن)
+        DB::listen(function (QueryExecuted $query) {
+            if ($query-&gt;time &gt; 100) {
+                Log::warning('Slow query', ['sql' =&gt; $query-&gt;sql, 'ms' =&gt; $query-&gt;time]);
+            }
+        });
+    }
+}</code></pre></div></div><ul><li>ابزارها: <b>Laravel Debugbar</b> (توسعه)، <b>Telescope</b>، لاگ کوئری کند MySQL (<code>slow_query_log</code>).</li><li>قاعده‌ی سرانگشتی: یک صفحه‌ی معمولی بیش از ~۲۰ کوئری نزند و هیچ کوئری مرتبط با لیست‌ها در حلقه نباشد.</li></ul></section><section class="lesson" id="n1"><div class="lesson-head"><span class="lesson-num">۲</span><h2>مرور: N+1 و انتخاب ستون</h2></div><p>N+1 را در درس Eloquent پیشرفته دیدی؛ همچنان اولین چیزی است که باید بررسی کنی. چند اصل ساده‌ی دیگر:</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+use App\Models\Product;
+
+// ❌ همه‌ی ستون‌ها (از جمله ستون‌های متن بلند)
+$products = Product::with('category')-&gt;get();
+
+// ✅ فقط آنچه صفحه نیاز دارد
+$products = Product::select('id', 'title', 'price', 'category_id', 'image')
+    -&gt;with('category:id,name')
+    -&gt;paginate(12);
+
+// ❌ شمردن با لود کردن همه
+$count = Product::where('stock', '&gt;', 0)-&gt;get()-&gt;count();
+// ✅ شمردن در دیتابیس
+$count = Product::where('stock', '&gt;', 0)-&gt;count();
+
+// ✅ فقط وجود؟ exists سریع‌تر از count
+$has = Product::where('stock', '&gt;', 0)-&gt;exists();</code></pre></div></div></section><section class="lesson" id="index"><div class="lesson-head"><span class="lesson-num">۳</span><h2>ایندکس: بزرگ‌ترین اهرم سرعت</h2></div><p>بدون ایندکس، دیتابیس برای پیداکردن یک سطر کل جدول را می‌خواند (Full Scan). ایندکس مثل فهرست آخر کتاب است. ستونی که در <code>WHERE</code>، <code>JOIN</code> و <code>ORDER BY</code> زیاد استفاده می‌شود کاندید ایندکس است.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('orders', function (Blueprint $table) {
+            $table-&gt;index('status');                          // فیلتر روی وضعیت
+            $table-&gt;index(['user_id', 'created_at']);         // «سفارش‌های کاربر مرتب‌شده بر اساس تاریخ»
+        });
+
+        Schema::table('products', function (Blueprint $table) {
+            $table-&gt;unique('slug');                           // یکتا + ایندکس
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('orders', function (Blueprint $table) {
+            $table-&gt;dropIndex(['status']);
+            $table-&gt;dropIndex(['user_id', 'created_at']);
+        });
+
+        Schema::table('products', function (Blueprint $table) {
+            $table-&gt;dropUnique(['slug']);
+        });
+    }
+};</code></pre></div></div><ul><li><b>ترتیب ستون‌ها در ایندکس ترکیبی مهم است:</b> <code>(user_id, created_at)</code> برای جست‌وجوی <code>user_id</code> یا هر دو مفید است، ولی تنها برای <code>created_at</code> کمکی نمی‌کند.</li><li><code>foreignId()->constrained()</code> خودش ایندکس می‌سازد.</li><li>ایندکس بیش‌ازحد نوشتن را کند و حجم را زیاد می‌کند؛ فقط جایی که لازم است.</li><li>جست‌وجوی <code>LIKE '%متن%'</code> از ایندکس معمولی استفاده نمی‌کند؛ برای جست‌وجوی جدی <b>FULLTEXT</b> یا Meilisearch (Laravel Scout).</li></ul><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">sql</span></div><pre><code>EXPLAIN SELECT * FROM orders WHERE user_id = 5 ORDER BY created_at DESC LIMIT 10;
+-- در ستون key ببین ایندکس استفاده شده؛ type=ALL یعنی Full Scan</code></pre></div></div></section><section class="lesson" id="pagination"><div class="lesson-head"><span class="lesson-num">۴</span><h2>صفحه‌بندی هوشمند</h2></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>روش</th><th>ویژگی</th><th>کاربرد</th></tr></thead><tbody><tr><td><code>paginate()</code></td><td>شماره صفحه + تعداد کل (یک کوئری COUNT اضافه)</td><td>لیست‌های معمولی</td></tr><tr><td><code>simplePaginate()</code></td><td>فقط قبلی/بعدی؛ بدون COUNT</td><td>لیست‌های بزرگ</td></tr><tr><td><code>cursorPaginate()</code></td><td>بر اساس نشانگر؛ برای میلیون‌ها سطر و Infinite Scroll</td><td>فید و گزارش‌های حجیم</td></tr></tbody></table></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+use App\Models\Order;
+
+$orders = Order::query()-&gt;latest('id')-&gt;simplePaginate(20);
+$feed   = Order::query()-&gt;orderBy('id')-&gt;cursorPaginate(50);</code></pre></div></div></section><section class="lesson" id="cache"><div class="lesson-head"><span class="lesson-num">۵</span><h2>کش</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+use App\Models\Category;
+use App\Models\Product;
+use Illuminate\Support\Facades\Cache;
+
+// داده‌ای که کم عوض می‌شود: ۱۰ دقیقه کش
+$categories = Cache::remember('categories:menu', now()-&gt;addMinutes(10), function () {
+    return Category::select('id', 'name', 'slug')-&gt;orderBy('name')-&gt;get();
+});
+
+// باطل‌کردن کش وقتی داده عوض شد (مثلاً در Observer دسته)
+Cache::forget('categories:menu');
+
+// داده‌ی گران (آمار): کش + قفل برای جلوگیری از «هجوم» هم‌زمان
+$stats = Cache::flexible('dashboard:stats', [60, 300], function () {   // تازه برای ۶۰ث، کهنه‌ی قابل‌قبول تا ۳۰۰ث
+    return ['orders' =&gt; App\Models\Order::count(), 'revenue' =&gt; App\Models\Order::sum('total')];
+});</code></pre></div></div><div class="note warn"><div class="note-title">دو مسئله‌ی سخت کش</div><p><b>ابطال کش</b> (کی باید پاک شود؟) و <b>کش داده‌ی شخصی</b> (هرگز صفحه یا داده‌ی مخصوص یک کاربر را با کلید مشترک کش نکن، وگرنه داده‌ی او به دیگران نشان داده می‌شود). برای شروع <code>CACHE_STORE=database</code> یا <code>file</code> کافی است؛ با رشد، Redis.</p></div><div class="note info"><div class="note-title">Cache::flexible</div><p><code>flexible</code> در نسخه‌های جدید لاراول اضافه شده است؛ اگر پروژه‌ات قدیمی‌تر بود، از <code>remember</code> استفاده کن.</p></div></section><section class="lesson" id="bulk"><div class="lesson-head"><span class="lesson-num">۶</span><h2>عملیات دسته‌ای و پردازش حجیم</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+
+use App\Models\Product;
+
+// ❌ ۱۰۰۰ کوئری
+foreach ($rows as $row) {
+    Product::create($row);
+}
+
+// ✅ یک کوئری
+Product::insert($rows);                                   // بدون رویداد/تایم‌استمپ مدل
+
+// ✅ ساخت یا به‌روزرسانی دسته‌ای (بر اساس کلید یکتا)
+Product::upsert($rows, ['sku'], ['price', 'stock']);
+
+// ✅ به‌روزرسانی با یک کوئری
+Product::where('category_id', 3)-&gt;update(['stock' =&gt; 0]);</code></pre></div></div></section><section class="lesson" id="prod"><div class="lesson-head"><span class="lesson-num">۷</span><h2>تنظیمات پروداکشن</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>composer install --no-dev --optimize-autoloader   # بدون پکیج‌های توسعه و با autoload بهینه
+php artisan optimize                                # کش config, route, event, view
+php artisan optimize:clear                          # پاک‌کردن همه‌ی کش‌ها (هنگام عیب‌یابی)</code></pre></div></div><ul><li><code>APP_DEBUG=false</code> و <code>APP_ENV=production</code>.</li><li>OPcache را در PHP سرور فعال کن (بیشترین تأثیر روی سرعت PHP).</li><li>تصاویر را فشرده و در اندازه‌ی مناسب نگه‌دار؛ فایل‌های CSS/JS را با Vite بسته‌بندی کن.</li><li><code>php artisan optimize</code> را در هر دیپلوی بزن؛ اگر کد <code>env()</code> مستقیم خارج از فایل‌های config استفاده کرده باشی، بعد از کش‌کردن config مقدار <code>null</code> می‌گیری. همیشه از <code>config()</code> بخوان.</li></ul></section><section class="lesson" id="explain" data-deep="1"><div class="lesson-head"><span class="lesson-num">۸</span><h2>خواندن EXPLAIN و ایندکس ترکیبی درست</h2></div><p>«ایندکس بگذار» کافی نیست؛ باید بدانی MySQL واقعاً از آن استفاده می‌کند یا نه. ابزارش <code>EXPLAIN</code> است.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// خروجی EXPLAIN را از Eloquent بگیر
+Order::where('user_id', 5)-&gt;where('status', 'paid')-&gt;orderByDesc('created_at')-&gt;explain()-&gt;dump();</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">sql</span></div><pre><code>EXPLAIN SELECT * FROM orders
+WHERE user_id = 5 AND status = 'paid'
+ORDER BY created_at DESC LIMIT 20;</code></pre></div></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>ستون</th><th>چه چیزی را نشان می‌دهد</th><th>نشانه‌ی خوب / بد</th></tr></thead><tbody><tr><td><code>type</code></td><td>روش دسترسی به جدول</td><td>خوب: <code>const</code>، <code>ref</code>، <code>range</code>؛ بد: <code>ALL</code> (اسکن کل جدول)</td></tr><tr><td><code>key</code></td><td>ایندکسی که انتخاب شده</td><td><code>NULL</code> یعنی هیچ ایندکسی استفاده نشد</td></tr><tr><td><code>rows</code></td><td>تعداد تقریبی ردیف‌های بررسی‌شده</td><td>هر چه به نتیجه نزدیک‌تر، بهتر</td></tr><tr><td><code>Extra</code></td><td>جزئیات اضافی</td><td><code>Using filesort</code> / <code>Using temporary</code> یعنی مرتب‌سازی یا جدول موقت پرهزینه</td></tr></tbody></table></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// مایگریشن: ایندکس ترکیبی برای همان کوئری (ترتیب ستون‌ها مهم است)
+Schema::table('orders', function (Blueprint $table) {
+    $table-&gt;index(['user_id', 'status', 'created_at'], 'orders_user_status_created_idx');
+});</code></pre></div></div><ul><li><b>ترتیب ستون‌ها:</b> ستون‌هایی که با <code>=</code> فیلتر می‌شوند اول، بعد ستون بازه (<code>&gt;</code>، <code>BETWEEN</code>)، بعد ستون مرتب‌سازی.</li><li>ایندکس <code>(a,b,c)</code> برای فیلتر روی <code>a</code> و <code>a,b</code> کار می‌کند ولی برای فیلتر فقط روی <code>b</code> نه (قانون پیشوند چپ).</li><li><code>LIKE '%کلمه%'</code> (درصد اول) از ایندکس استفاده نمی‌کند؛ برای جست‌وجوی متنی از FULLTEXT یا ابزار جست‌وجو (Meilisearch/Scout) استفاده کن.</li><li><code>WHERE DATE(created_at) = ...</code> ایندکس را بی‌اثر می‌کند؛ به‌جایش بازه بنویس: <code>whereBetween('created_at', [$start, $end])</code>.</li><li>هر ایندکس نوشتن را کندتر و فضا را بیشتر می‌کند؛ ایندکس بی‌مصرف نساز.</li></ul></section><section class="lesson" id="aggregates" data-deep="1"><div class="lesson-head"><span class="lesson-num">۹</span><h2>شمارش و جمع بدون کوئری اضافه</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// ✗ بد: برای هر دسته یک کوئری COUNT (N+1 شمارشی)
+foreach ($categories as $c) { echo $c-&gt;products()-&gt;count(); }
+
+// ✓ خوب: یک کوئری
+$categories = Category::withCount('products')-&gt;get();      // products_count
+$orders = Order::withSum('items', 'total')-&gt;withMax('items', 'price')-&gt;get();
+
+// ✓ فقط «وجود دارد؟» → exists نه count
+if ($user-&gt;orders()-&gt;where('status', 'paid')-&gt;exists()) { /* ... */ }
+
+// ✓ ستون‌های لازم، نه همه
+Product::select('id', 'name', 'price', 'slug')-&gt;where('active', true)-&gt;paginate(24);
+
+// ✓ زیرکوئری برای آخرین سفارش هر کاربر بدون Join پیچیده
+$users = User::addSelect([
+    'last_order_at' =&gt; Order::select('created_at')
+        -&gt;whereColumn('user_id', 'users.id')-&gt;latest()-&gt;limit(1),
+])-&gt;get();</code></pre></div></div><div class="note tip"><div class="note-title">محاسبه در دیتابیس، نه در PHP</div><p>جمع‌زدن هزاران ردیف با <code>$collection->sum()</code> داده‌ی زیادی را به PHP می‌آورد. <code>sum()</code>، <code>avg()</code> و <code>groupBy</code> را به دیتابیس بسپار؛ برای گزارش‌ها از Query Builder و <code>selectRaw</code> استفاده کن.</p></div></section><section class="lesson" id="memory" data-deep="1"><div class="lesson-head"><span class="lesson-num">۱۰</span><h2>داده‌ی بزرگ بدون پر شدن حافظه</h2></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>روش</th><th>کجا استفاده کن</th><th>نکته</th></tr></thead><tbody><tr><td><code>chunkById(500, fn)</code></td><td>به‌روزرسانی/پردازش دسته‌ای رکوردها</td><td>امن‌ترین برای تغییر ردیف‌ها در حین پردازش</td></tr><tr><td><code>lazy()</code> / <code>lazyById()</code></td><td>خواندن میلیون‌ها ردیف، خروجی گرفتن (Export)</td><td>Collection تنبل؛ هر بار چند ردیف در حافظه</td></tr><tr><td><code>cursor()</code></td><td>پیمایش ساده فقط خواندنی</td><td>یک اتصال را باز نگه می‌دارد؛ با Eager Loading سازگار نیست</td></tr></tbody></table></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// ارسال اعلان به همه‌ی کاربران فعال، بدون پر شدن RAM
+User::where('active', true)-&gt;chunkById(500, function ($users) {
+    foreach ($users as $user) {
+        $user-&gt;notify(new Promo());   // بهتر: Job صف‌دار برای هر دسته
+    }
+});
+
+// خروجی CSV بزرگ با استریم
+return response()-&gt;streamDownload(function () {
+    $out = fopen('php://output', 'w');
+    fputcsv($out, ['id', 'total', 'created_at']);
+    Order::select('id', 'total', 'created_at')-&gt;lazyById(1000)-&gt;each(fn ($o) =&gt; fputcsv($out, $o-&gt;only('id', 'total', 'created_at')));
+    fclose($out);
+}, 'orders.csv');</code></pre></div></div></section><section class="lesson" id="guards" data-deep="1"><div class="lesson-head"><span class="lesson-num">۱۱</span><h2>نگهبان‌های خودکار: جلوگیری از N+1 و شناسایی کوئری کند</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>// app/Providers/AppServiceProvider.php
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
+
+public function boot(): void
+{
+    // در توسعه، هر Lazy Loading خطا می‌دهد تا N+1 همان لحظه پیدا شود
+    Model::preventLazyLoading(! app()-&gt;isProduction());
+
+    // لاگ کوئری‌های کندتر از ۵۰۰ میلی‌ثانیه
+    DB::listen(function ($query) {
+        if ($query-&gt;time &gt; 500) {
+            logger()-&gt;warning('slow query', ['sql' =&gt; $query-&gt;sql, 'ms' =&gt; $query-&gt;time]);
+        }
+    });
+}</code></pre></div></div><ul><li><b>MySQL Slow Query Log:</b> <code>slow_query_log=1</code> و <code>long_query_time=1</code> را روی سرور روشن کن و هفته‌ای یک بار فایل را بخوان.</li><li><b>Laravel Pulse</b> کوئری‌ها، Jobها و درخواست‌های کند را در یک داشبورد نشان می‌دهد؛ Debugbar/Telescope را فقط در توسعه نصب کن.</li><li>قبل از هر «بهینه‌سازی» اندازه بگیر؛ بعدش دوباره اندازه بگیر. بهینه‌سازی بدون عدد، حدس است.</li></ul></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۱۲</span><h2>اشتباه‌های رایج</h2></div><ol><li>بهینه‌سازی بدون اندازه‌گیری.</li><li>N+1 و <code>all()</code> روی جدول بزرگ.</li><li>ایندکس‌نکردن ستون‌های فیلتر و ترتیب، یا ایندکس همه‌چیز.</li><li>کش‌کردن داده‌ی شخصی با کلید مشترک.</li><li>فراموش‌کردن ابطال کش و نمایش داده‌ی کهنه.</li><li><code>count()</code> برای بررسی وجود (به‌جای <code>exists()</code>).</li><li>ایندکس‌گذاری روی تک‌تک ستون‌ها به‌جای ایندکس ترکیبی متناسب با کوئری.</li><li>استفاده از <code>count()</code> برای بررسی وجود و <code>all()</code> برای جداول بزرگ.</li><li>بهینه‌سازی زودهنگام: قبل از اندازه‌گیری روی کوئری‌ای کار کردن که اصلاً کند نیست.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>با <code>DB::listen</code> تعداد کوئری‌های صفحه‌ی اصلی فروشگاه را لاگ کن، N+1 را پیدا و رفع کن و تعداد قبل/بعد را مقایسه کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li>روی جدول سفارش‌ها با ۱۰۰ هزار رکورد (با Seeder/Factory) یک کوئری را قبل و بعد از ایندکس با <code>EXPLAIN</code> مقایسه کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>منوی دسته‌ها را کش کن و در Observer، هنگام تغییر دسته، کش را باطل کن.</li><li>لیست بزرگ سفارش‌ها را با <code>simplePaginate</code> بساز.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۴</div><ol><li>یک کوئری کند از پروژه‌ات (لیست سفارش‌ها با فیلتر وضعیت و کاربر) را با <code>explain()</code> بررسی کن، ایندکس ترکیبی درست بساز و <code>type</code>/<code>rows</code> را قبل و بعد مقایسه کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۵</div><ol><li>صفحه‌ی لیست دسته‌ها را با <code>withCount</code> بازنویسی کن و تعداد کوئری‌ها را با Debugbar قبل و بعد بشمار.</li><li><code>Model::preventLazyLoading()</code> را روشن کن و همه‌ی خطاهای پروژه را با <code>with()</code> رفع کن.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://laravel.com/docs/13.x/queries" target="_blank" rel="noopener">Database: Query Builder</a> — <a href="https://laravel.com/docs/13.x/cache" target="_blank" rel="noopener">Cache</a> — <a href="https://laravel.com/docs/13.x/deployment#optimization" target="_blank" rel="noopener">Deployment: Optimization</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="l3-clean-code.html">→ بخش قبل: Service و Repository و کد تمیز</a><a href="l3-livewire.html">بعدی: Livewire: مقدمه ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

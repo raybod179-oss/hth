@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۳ · درس 7 | انتشار روی هاست و VPS</title><meta name="description" content="انتشار پروژه‌ی لاراول: هاست cPanel، VPS اوبونتو با Nginx و PHP-FPM، HTTPS، Supervisor، Cron، اسکریپت دیپلوی، بکاپ، پایش و چک‌لیست انتشار.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۳ · درس 7</span><h1>انتشار روی هاست و VPS</h1><p>پروژه تا وقتی روی سرور نیست «فقط روی کامپیوتر من» است. این درس تو را قدم‌به‌قدم از صفر تا سایت زنده با HTTPS، صف، Cron و بکاپ می‌برد.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#options">گزینه‌های انتشار</a></li><li><a href="#cpanel">انتشار روی هاست اشتراکی (cPanel)</a></li><li><a href="#vps">راه‌اندازی VPS اوبونتو (Nginx + PHP-FPM + MySQL)</a></li><li><a href="#app">گذاشتن برنامه روی سرور</a></li><li><a href="#script">اسکریپت دیپلوی تکرارپذیر</a></li><li><a href="#after">بعد از انتشار</a></li><li><a href="#checklist">چک‌لیست انتشار</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="options"><div class="lesson-head"><span class="lesson-num">۱</span><h2>گزینه‌های انتشار</h2></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>گزینه</th><th>مزیت</th><th>محدودیت</th><th>مناسب</th></tr></thead><tbody><tr><td>هاست اشتراکی (cPanel)</td><td>ارزان، ساده</td><td>دسترسی محدود (گاهی SSH نیست)، پروسه‌ی دائمی ممکن نیست</td><td>سایت کوچک، شروع</td></tr><tr><td>VPS لینوکس</td><td>کنترل کامل، صف و WebSocket</td><td>مدیریت سرور با خودت است</td><td>فروشگاه واقعی، پروژه‌ی جدی</td></tr><tr><td>Docker روی VPS</td><td>محیط یکسان با توسعه</td><td>یادگیری Docker لازم است</td><td>تیمی، چند سرویس</td></tr><tr><td>PaaS (مثل Laravel Cloud، Forge + سرور)</td><td>دیپلوی ساده</td><td>هزینه؛ برای ایران ممکن است قابل‌دسترس نباشد</td><td>اگر سرور خارج ایران مجاز است</td></tr></tbody></table></div><div class="note info"><div class="note-title">سرور داخل یا خارج ایران؟</div><p>اگر سایتت درگاه پرداخت ایرانی دارد، بعضی درگاه‌ها فقط از IP ایران درخواست می‌پذیرند و کاربران ایرانی هم سرعت بهتری از سرور داخلی می‌گیرند. قبل از خرید هاست از پشتیبانی درگاه و هاست بپرس. این‌ها را همیشه با اطلاعات به‌روز خودت چک کن.</p></div></section><section class="lesson" id="cpanel"><div class="lesson-head"><span class="lesson-num">۲</span><h2>انتشار روی هاست اشتراکی (cPanel)</h2></div><ol><li>نسخه‌ی PHP را روی ۸٫۲ یا بالاتر بگذار (MultiPHP Manager) و افزونه‌های لازم (mbstring، pdo_mysql، xml، zip، intl، bcmath، fileinfo) را فعال کن.</li><li>دیتابیس و کاربر MySQL بساز و به هم وصل کن.</li><li><b>ریشه‌ی دامنه را روی پوشه‌ی <code>public</code> پروژه بگذار</b> (Domains ← Document Root). اگر هاست اجازه نمی‌دهد، کل پروژه را بالاتر از <code>public_html</code> بگذار و فقط محتوای <code>public</code> را داخل <code>public_html</code> بریز و مسیرهای <code>index.php</code> را اصلاح کن. هرگز کل پروژه (با <code>.env</code>) را داخل <code>public_html</code> نگذار.</li><li>پروژه را آپلود کن (ZIP + Extract). اگر SSH داری: <code>composer install --no-dev --optimize-autoloader</code>؛ اگر نداری، پوشه‌ی <code>vendor</code> را از سیستم خودت (با <code>--no-dev</code>) آپلود کن.</li><li>فایل <code>.env</code> را با مقادیر واقعی بساز و <code>APP_ENV=production</code>، <code>APP_DEBUG=false</code>، <code>APP_URL</code> و اطلاعات دیتابیس را بگذار.</li><li>اگر SSH داری: <code>php artisan key:generate</code>، <code>php artisan migrate --force</code>، <code>php artisan storage:link</code>، <code>php artisan optimize</code>.</li><li>مجوز نوشتن: پوشه‌های <code>storage</code> و <code>bootstrap/cache</code> قابل‌نوشتن باشند (معمولاً ۷۷۵).</li><li>Cron را برای Scheduler اضافه کن (درس Scheduler) و برای صف: <code>php artisan queue:work --stop-when-empty</code> هر دقیقه.</li></ol><div class="note warn"><div class="note-title">اگر بدون SSH هستی</div><p>دستورات artisan را نمی‌توانی بزنی. با یک مسیر موقت و رمزدار می‌شود migrate اجرا کرد ولی این روش خطرناک است؛ ترجیحاً هاستی انتخاب کن که SSH دارد، یا migration را روی سیستم خودت به دیتابیس هاست اجرا کن (اگر دسترسی ریموت دارد) یا خروجی SQL را با phpMyAdmin وارد کن.</p></div></section><section class="lesson" id="vps"><div class="lesson-head"><span class="lesson-num">۳</span><h2>راه‌اندازی VPS اوبونتو (Nginx + PHP-FPM + MySQL)</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code># ۱) اتصال و امن‌سازی اولیه
+ssh root@SERVER_IP
+adduser deploy &amp;&amp; usermod -aG sudo deploy
+# کلید SSH را برای کاربر deploy بگذار و ورود با رمز و root را در /etc/ssh/sshd_config غیرفعال کن
+
+ufw allow OpenSSH &amp;&amp; ufw allow 'Nginx Full' &amp;&amp; ufw enable
+
+# ۲) نصب بسته‌ها (اوبونتو ۲۴٫۰۴ با PHP 8.3)
+sudo apt update
+sudo apt install -y nginx mysql-server git unzip \
+  php8.3-fpm php8.3-mysql php8.3-mbstring php8.3-xml php8.3-curl php8.3-zip php8.3-intl php8.3-bcmath
+sudo apt install -y composer certbot python3-certbot-nginx supervisor</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">sql</span></div><pre><code>-- ۳) دیتابیس و کاربر اختصاصی (با رمز قوی)
+CREATE DATABASE myshop CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'myshop'@'localhost' IDENTIFIED BY 'A-Strong-Random-Password';
+GRANT ALL PRIVILEGES ON myshop.* TO 'myshop'@'localhost';
+FLUSH PRIVILEGES;</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">nginx</span></div><pre><code># /etc/nginx/sites-available/myshop
+server {
+    listen 80;
+    server_name example.com www.example.com;
+    root /var/www/myshop/public;
+    index index.php;
+    client_max_body_size 10M;
+
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-Content-Type-Options "nosniff";
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+    }
+
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>sudo ln -s /etc/nginx/sites-available/myshop /etc/nginx/sites-enabled/
+sudo nginx -t &amp;&amp; sudo systemctl reload nginx
+
+# ۴) HTTPS رایگان (دامنه باید از قبل به IP سرور اشاره کند)
+sudo certbot --nginx -d example.com -d www.example.com</code></pre></div></div></section><section class="lesson" id="app"><div class="lesson-head"><span class="lesson-num">۴</span><h2>گذاشتن برنامه روی سرور</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>sudo mkdir -p /var/www/myshop &amp;&amp; sudo chown deploy:deploy /var/www/myshop
+cd /var/www/myshop
+git clone git@github.com:USERNAME/myshop.git .        # از Deploy Key فقط‌خواندنی استفاده کن
+
+composer install --no-dev --optimize-autoloader
+cp .env.example .env &amp;&amp; nano .env                     # مقادیر پروداکشن
+php artisan key:generate
+php artisan migrate --force
+php artisan storage:link
+php artisan optimize
+
+sudo chown -R www-data:www-data storage bootstrap/cache
+sudo chmod -R ug+rwX storage bootstrap/cache</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">text</span></div><pre><code># /etc/supervisor/conf.d/myshop-worker.conf
+[program:myshop-worker]
+command=php /var/www/myshop/artisan queue:work --sleep=3 --tries=3 --max-time=3600
+autostart=true
+autorestart=true
+user=www-data
+numprocs=2
+process_name=%(program_name)s_%(process_num)02d
+stdout_logfile=/var/www/myshop/storage/logs/worker.log
+stopwaitsecs=3600</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>sudo supervisorctl reread &amp;&amp; sudo supervisorctl update &amp;&amp; sudo supervisorctl start 'myshop-worker:*'
+
+# Cron برای Scheduler: sudo crontab -u www-data -e
+* * * * * cd /var/www/myshop &amp;&amp; php artisan schedule:run &gt;&gt; /dev/null 2&gt;&amp;1</code></pre></div></div></section><section class="lesson" id="script"><div class="lesson-head"><span class="lesson-num">۵</span><h2>اسکریپت دیپلوی تکرارپذیر</h2></div><p>هر بار دستی دستور زدن یعنی روزی یک مرحله را فراموش می‌کنی. همه را در یک اسکریپت بگذار.</p><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">bash</span></div><pre><code>#!/usr/bin/env bash
+# /var/www/myshop/deploy.sh
+set -euo pipefail
+cd /var/www/myshop
+
+php artisan down --retry=60          # صفحه‌ی «در حال به‌روزرسانی»
+
+git fetch origin main
+git reset --hard origin/main
+
+composer install --no-dev --optimize-autoloader --no-interaction
+php artisan migrate --force
+php artisan optimize:clear
+php artisan optimize
+
+php artisan queue:restart            # Workerها کد جدید را لود کنند
+php artisan up
+
+echo "Deployed: $(git rev-parse --short HEAD)"</code></pre></div></div><div class="note warn"><div class="note-title">قبل از migrate بکاپ بگیر</div><p>مایگریشن‌هایی که ستون یا جدول را حذف می‌کنند برگشت‌ناپذیرند. قبل از هر دیپلوی مهم از دیتابیس بکاپ بگیر: <code>mysqldump myshop | gzip > backup-$(date +%F).sql.gz</code>. اگر مایگریشن نیاز دارد، کار را در دو دیپلوی تقسیم کن (اول افزودن ستون جدید، بعداً حذف قدیمی).</p></div></section><section class="lesson" id="after"><div class="lesson-head"><span class="lesson-num">۶</span><h2>بعد از انتشار</h2></div><ul><li><b>پایش:</b> مسیر <code>/up</code> لاراول برای Health Check است؛ با UptimeRobot یا مشابه آن هر چند دقیقه چک کن و اعلان بگیر.</li><li><b>لاگ:</b> <code>storage/logs</code> را مرتب ببین؛ برای سایت جدی از سرویس‌های خطایاب (مثل Sentry) استفاده کن.</li><li><b>بکاپ خودکار:</b> Cron شبانه برای دیتابیس + فایل‌های آپلودی، نگهداری روی سرور دیگر، و تست بازیابی ماهانه.</li><li><b>صفحه‌های خطا:</b> صفحه‌ی ۴۰۴/۵۰۰ فارسی و دوستانه بساز (<code>resources/views/errors</code>).</li><li><b>سئو و پایه‌ها:</b> <code>robots.txt</code>، نقشه‌ی سایت، عنوان و توضیح صفحات، سرعت موبایل.</li><li><b>بازگشت (Rollback):</b> نسخه‌ی قبل را با <code>git reset --hard &lt;commit&gt;</code> و اجرای دوباره‌ی اسکریپت برگردان؛ مایگریشن‌های مخرب را از قبل برنامه‌ریزی کن.</li></ul></section><section class="lesson" id="checklist"><div class="lesson-head"><span class="lesson-num">۷</span><h2>چک‌لیست انتشار</h2></div><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>مورد</th><th>درست</th></tr></thead><tbody><tr><td><code>APP_ENV</code>/<code>APP_DEBUG</code></td><td>production / false</td></tr><tr><td><code>APP_KEY</code></td><td>ساخته‌شده و پشتیبان‌گیری‌شده</td></tr><tr><td>HTTPS</td><td>فعال و ریدایرکت از HTTP</td></tr><tr><td>ریشه‌ی وب</td><td>پوشه‌ی <code>public</code></td></tr><tr><td>دسترسی‌ها</td><td>فقط <code>storage</code> و <code>bootstrap/cache</code> قابل‌نوشتن</td></tr><tr><td>Cron و صف</td><td>فعال و تست‌شده</td></tr><tr><td>بکاپ</td><td>خودکار + بازیابی تست‌شده</td></tr><tr><td>ایمیل/پیامک/درگاه</td><td>کلیدهای پروداکشن و یک تست واقعی</td></tr><tr><td>اسرار</td><td>هیچ‌کدام در گیت نیست</td></tr></tbody></table></div></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۸</span><h2>اشتباه‌های رایج</h2></div><ol><li>گذاشتن کل پروژه (با <code>.env</code>) داخل <code>public_html</code> و دسترسی عمومی به اسرار.</li><li><code>APP_DEBUG=true</code> در پروداکشن.</li><li>اجرای <code>composer install</code> بدون <code>--no-dev</code> و نصب ابزارهای توسعه روی سرور.</li><li>فراموش‌کردن <code>queue:restart</code> و اجرای کد قدیمی در Worker.</li><li>دسترسی ۷۷۷ برای همه‌چیز برای «رفع خطا».</li><li>بدون بکاپ قبل از migrate.</li><li>نداشتن راه بازگشت و دیپلوی مستقیم روی سرور بدون تست.</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱</div><ol><li>یک VPS آزمایشی (یا یک ماشین مجازی لوکال) بگیر، Nginx و PHP را نصب کن و پروژه‌ات را با یک دامنه‌ی تست بالا بیاور.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲</div><ol><li>اسکریپت <code>deploy.sh</code> را بنویس و تغییری کوچک را با آن منتشر کن.</li><li>Supervisor و Cron را برای صف و Scheduler راه بینداز و یک Job را تست کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳</div><ol><li>بکاپ خودکار شبانه بنویس و یک‌بار آن را روی دیتابیس دیگر بازیابی کن تا مطمئن شوی کار می‌کند.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://laravel.com/docs/13.x/deployment" target="_blank" rel="noopener">Laravel Deployment</a> — <a href="https://nginx.org/en/docs/" target="_blank" rel="noopener">Nginx</a> — <a href="https://certbot.eff.org/" target="_blank" rel="noopener">Certbot</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="l3-docker.html">→ بخش قبل: Docker و محیط توسعه</a><a href="l3-cicd.html">بعدی: CI/CD و GitHub Actions ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>

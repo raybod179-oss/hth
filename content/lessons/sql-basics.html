@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سطح ۰ · درس ۶ | مبانی SQL و MySQL با phpMyAdmin</title><meta name="description" content="ساخت دیتابیس و جدول، INSERT، SELECT، UPDATE، DELETE، JOIN، GROUP BY و اتصال امن از PHP با PDO؛ همه با مثال و خروجی.">
+<link rel="icon" href="../assets/img/favicon.png"><link rel="stylesheet" href="../assets/css/rayvo.css">
+<script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("rayvo:theme")||"light")}catch(e){}</script></head>
+<body><div class="course-page"><header class="course-header"><span class="badge">سطح ۰ · درس ۶</span><h1>مبانی SQL و MySQL با phpMyAdmin</h1><p>قبل از Eloquent باید بدانی زیر کاپوت چه می‌گذرد. در این درس با یک فروشگاه کوچک SQL را از صفر یاد می‌گیری و بعد می‌بینی چرا لاراول این‌قدر کارت را راحت می‌کند.</p></header>
+<nav class="toc" aria-label="فهرست مطالب"><h2>توی این درس چه چیزهایی یاد می‌گیریم؟</h2><ol><li><a href="#db">دیتابیس، جدول و ستون</a></li><li><a href="#pma">ساخت دیتابیس در phpMyAdmin</a></li><li><a href="#create">ساخت جدول (CREATE TABLE)</a></li><li><a href="#insert">افزودن داده (INSERT)</a></li><li><a href="#select">خواندن داده (SELECT)</a></li><li><a href="#update">ویرایش و حذف (UPDATE و DELETE)</a></li><li><a href="#join">JOIN: پیوند جدول‌ها</a></li><li><a href="#group">توابع تجمیعی و GROUP BY</a></li><li><a href="#pdo">اتصال از PHP با PDO (و ریشه‌ی SQL Injection)</a></li><li><a href="#mistakes">اشتباه‌های رایج</a></li><li><a href="#exercises">تمرین‌ها</a></li></ol></nav>
+<section class="lesson" id="db"><div class="lesson-head"><span class="lesson-num">۱</span><h2>دیتابیس، جدول و ستون</h2></div><p>دیتابیس جایی است که داده‌ی ماندگار برنامه ذخیره می‌شود. یک دیتابیس چند <b>جدول</b> دارد؛ هر جدول مثل یک شیت اکسل است: <b>ستون‌ها</b> ویژگی‌ها و <b>سطرها</b> رکوردها هستند. ما از <b>MySQL</b> (یا MariaDB که با XAMPP می‌آید) استفاده می‌کنیم و زبان صحبت با آن <b>SQL</b> است.</p><div style="overflow-x:auto"><table class="rv-table"><thead><tr><th>نوع ستون</th><th>برای چه؟</th><th>مثال</th></tr></thead><tbody><tr><td><code>INT / BIGINT</code></td><td>عدد صحیح</td><td>id، تعداد، قیمت (تومان)</td></tr><tr><td><code>VARCHAR(255)</code></td><td>متن کوتاه</td><td>نام، ایمیل، عنوان</td></tr><tr><td><code>TEXT</code></td><td>متن بلند</td><td>توضیحات، متن مقاله</td></tr><tr><td><code>DECIMAL(10,2)</code></td><td>عدد اعشاری دقیق</td><td>مبلغ‌های ارزی</td></tr><tr><td><code>BOOLEAN</code></td><td>بله/خیر</td><td>فعال بودن</td></tr><tr><td><code>TIMESTAMP / DATETIME</code></td><td>تاریخ و زمان</td><td>created_at</td></tr></tbody></table></div><div class="note tip"><div class="note-title">قیمت را چطور ذخیره کنیم؟</div><p>برای تومان/ریال از عدد صحیح (<code>BIGINT</code>) استفاده کن، نه <code>FLOAT</code>؛ اعشاری‌های ساده خطای گرد‌کردن دارند و در پول قابل‌قبول نیست.</p></div></section><section class="lesson" id="pma"><div class="lesson-head"><span class="lesson-num">۲</span><h2>ساخت دیتابیس در phpMyAdmin</h2></div><ol><li>XAMPP را اجرا و <b>Apache</b> و <b>MySQL</b> را Start کن.</li><li>آدرس <code>http://localhost/phpmyadmin</code> را باز کن.</li><li>از سمت چپ <b>New</b> را بزن، نام <code>rayvo_shop</code> و collation را <code>utf8mb4_unicode_ci</code> بگذار و Create کن.</li><li>تب <b>SQL</b> را باز کن؛ کدهای این درس را آنجا می‌چسبانیم و Go می‌زنیم.</li></ol><div class="note warn"><div class="note-title">حتماً utf8mb4</div><p>اگر collation را <code>utf8mb4_unicode_ci</code> نگذاری، فارسی و ایموجی ممکن است به‌صورت ؟؟؟ ذخیره شود. لاراول هم پیش‌فرضش utf8mb4 است.</p></div></section><section class="lesson" id="create"><div class="lesson-head"><span class="lesson-num">۳</span><h2>ساخت جدول (CREATE TABLE)</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">sql</span></div><pre><code>CREATE TABLE categories (
+    id   INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE products (
+    id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    category_id INT UNSIGNED NOT NULL,
+    title       VARCHAR(200) NOT NULL,
+    price       BIGINT UNSIGNED NOT NULL,
+    stock       INT UNSIGNED NOT NULL DEFAULT 0,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (category_id) REFERENCES categories(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;</code></pre></div></div><ul><li><b>PRIMARY KEY:</b> شناسه‌ی یکتای هر سطر. <code>AUTO_INCREMENT</code> یعنی خودش ۱، ۲، ۳... می‌دهد.</li><li><b>NOT NULL:</b> این ستون نباید خالی باشد.</li><li><b>FOREIGN KEY:</b> «کلید خارجی»؛ می‌گوید <code>category_id</code> حتماً باید یکی از <code>id</code>های جدول categories باشد. این همان پایه‌ی «رابطه» در Eloquent است.</li></ul></section><section class="lesson" id="insert"><div class="lesson-head"><span class="lesson-num">۴</span><h2>افزودن داده (INSERT)</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">sql</span></div><pre><code>INSERT INTO categories (name) VALUES ('لوازم جانبی'), ('صوتی');
+
+INSERT INTO products (category_id, title, price, stock) VALUES
+(1, 'کیبورد', 850000, 10),
+(1, 'ماوس',   420000, 25),
+(2, 'هدفون', 1200000, 0),
+(2, 'اسپیکر', 680000, 7);</code></pre></div></div></section><section class="lesson" id="select"><div class="lesson-head"><span class="lesson-num">۵</span><h2>خواندن داده (SELECT)</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">sql</span></div><pre><code>SELECT * FROM products;                          -- همه‌ی ستون‌ها و سطرها
+SELECT title, price FROM products;               -- فقط دو ستون
+
+SELECT title, price
+FROM products
+WHERE price &gt; 500000
+ORDER BY price DESC;</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>هدفون | 1200000
+کیبورد | 850000
+اسپیکر | 680000</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">sql</span></div><pre><code>SELECT title FROM products WHERE stock = 0;            -- ناموجودها
+SELECT title FROM products ORDER BY price DESC LIMIT 2;   -- ۲ گران‌ترین
+SELECT title FROM products WHERE title LIKE 'ک%';       -- شروع با «ک»
+SELECT title FROM products WHERE price BETWEEN 400000 AND 700000;
+SELECT title FROM products WHERE category_id IN (1, 2) AND stock &gt; 0;</code></pre></div></div><div class="note info"><div class="note-title">ترتیب نوشتن</div><p><code>SELECT</code> ← <code>FROM</code> ← <code>WHERE</code> ← <code>GROUP BY</code> ← <code>ORDER BY</code> ← <code>LIMIT</code>. این ترتیب را حفظ کن؛ در Query Builder لاراول هم همین است (<code>select()->where()->orderBy()->limit()</code>).</p></div></section><section class="lesson" id="update"><div class="lesson-head"><span class="lesson-num">۶</span><h2>ویرایش و حذف (UPDATE و DELETE)</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">sql</span></div><pre><code>UPDATE products SET stock = stock + 20 WHERE id = 3;
+UPDATE products SET price = price * 1.1 WHERE category_id = 1;
+
+DELETE FROM products WHERE id = 4;</code></pre></div></div><div class="note warn"><div class="note-title">خطرناک‌ترین اشتباه SQL</div><p><b>UPDATE یا DELETE بدون WHERE روی همه‌ی سطرها اثر می‌گذارد!</b> قبل از اجرا همان شرط را با یک SELECT امتحان کن و ببین دقیقاً چند سطر انتخاب می‌شود. در پروژه‌های واقعی حتماً بکاپ داشته باش.</p></div></section><section class="lesson" id="join"><div class="lesson-head"><span class="lesson-num">۷</span><h2>JOIN: پیوند جدول‌ها</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">sql</span></div><pre><code>SELECT p.title, c.name AS category
+FROM products p
+JOIN categories c ON c.id = p.category_id
+ORDER BY p.id;</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>کیبورد | لوازم جانبی
+ماوس | لوازم جانبی
+هدفون | صوتی
+اسپیکر | صوتی</code></pre></div></div><p><code>JOIN</code> هر سطر محصول را با سطر مربوط به دسته‌اش «جفت» می‌کند. <code>LEFT JOIN</code> هم سطرهای سمت چپ را نگه می‌دارد حتی اگر جفتی نداشته باشند (مثلاً دسته‌ی بدون محصول).</p></section><section class="lesson" id="group"><div class="lesson-head"><span class="lesson-num">۸</span><h2>توابع تجمیعی و GROUP BY</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">sql</span></div><pre><code>SELECT COUNT(*) AS n, MAX(price) AS max_price, MIN(price) AS min_price, SUM(stock) AS total_stock
+FROM products;</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>4 | 1200000 | 420000 | 42</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">sql</span></div><pre><code>SELECT c.name, COUNT(*) AS n, AVG(p.price) AS avg_price, SUM(p.stock) AS total_stock
+FROM products p
+JOIN categories c ON c.id = p.category_id
+GROUP BY c.id, c.name;</code></pre></div></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>خروجی</span><span class="demo-tag">خروجی</span></div><pre><code>لوازم جانبی | 2 | 635000.0000 | 35
+صوتی | 2 | 940000.0000 | 7</code></pre></div></div><div class="note tip"><div class="note-title">گزارش‌گیری</div><p>همین کوئری‌ها پایه‌ی داشبورد ادمین در پروژه‌های دوره هستند: تعداد سفارش، جمع فروش، پرفروش‌ترین‌ها.</p></div></section><section class="lesson" id="pdo"><div class="lesson-head"><span class="lesson-num">۹</span><h2>اتصال از PHP با PDO (و ریشه‌ی SQL Injection)</h2></div><div class="demo demo-full"><div class="demo-code"><div class="demo-label"><span>کد</span><span class="demo-tag">php</span></div><pre><code>&lt;?php
+$pdo = new PDO(
+    "mysql:host=localhost;dbname=rayvo_shop;charset=utf8mb4",
+    "root",
+    "",                       // در XAMPP رمز پیش‌فرض خالی است
+    [
+        PDO::ATTR_ERRMODE            =&gt; PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE =&gt; PDO::FETCH_ASSOC,
+    ]
+);
+
+// ✅ درست: Prepared Statement
+$stmt = $pdo-&gt;prepare("SELECT title, price FROM products WHERE price &gt; :min ORDER BY price");
+$stmt-&gt;execute(["min" =&gt; 500000]);
+
+foreach ($stmt as $row) {
+    echo $row["title"], ": ", number_format($row["price"]), "\n";
+}</code></pre></div></div><div class="note warn"><div class="note-title">هرگز ورودی کاربر را داخل رشته‌ی SQL نچسبان</div><p>کدی مثل <code>"... WHERE title = '$_GET[q]'"</code> به مهاجم اجازه می‌دهد کوئری را عوض کند (SQL Injection). با Prepared Statement مقدارها جدا از دستور ارسال می‌شوند و این حمله ممکن نیست. Eloquent و Query Builder لاراول خودکار همین کار را می‌کنند؛ ولی باید بدانی چرا.</p></div></section><section class="lesson" id="mistakes"><div class="lesson-head"><span class="lesson-num">۱۰</span><h2>اشتباه‌های رایج</h2></div><ol><li>فراموش‌کردن <code>WHERE</code> در UPDATE/DELETE.</li><li>نگذاشتن کوتیشن دور متن (<code>'سلام'</code>) یا استفاده از کوتیشن اشتباه برای نام ستون (باید backtick باشد).</li><li>collation غیر از utf8mb4 و خراب‌شدن فارسی.</li><li>ذخیره‌ی قیمت به‌صورت متن یا FLOAT.</li><li>حذف سطر دسته‌ای که محصول دارد؛ کلید خارجی اجازه نمی‌دهد (و درست است!).</li></ol></section>
+<section class="lesson" id="exercises"><div class="lesson-head"><span class="lesson-num">★</span><h2>تمرین‌ها</h2></div><div class="exercise"><div class="ex-title">تمرین ۱: SELECT</div><ol><li>محصولاتی که موجودی‌شان کمتر از ۱۰ است را بیاور.</li><li>گران‌ترین محصول هر دسته را با <code>MAX</code> و <code>GROUP BY</code> پیدا کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۲: جدول تازه</div><ol><li>جدول <code>customers</code> با ستون‌های id، name، phone (یکتا) و created_at بساز.</li><li>سه مشتری اضافه کن و با <code>LIKE</code> جست‌وجو کن.</li></ol></div><div class="exercise"><div class="ex-title">تمرین ۳: سفارش</div><ol><li>جدول <code>orders</code> با کلید خارجی به customers و جدول <code>order_items</code> برای محصول‌های هر سفارش طراحی کن (رابطه‌ی چندبه‌چند).</li><li>کوئری بنویس که جمع مبلغ هر مشتری را نشان بدهد.</li></ol></div><div class="note info"><div class="note-title">مطالعه‌ی بیشتر (انگلیسی)</div><p><a href="https://dev.mysql.com/doc/refman/8.4/en/" target="_blank" rel="noopener">MySQL Reference Manual</a> — <a href="https://www.php.net/manual/en/book.pdo.php" target="_blank" rel="noopener">PHP PDO</a></p></div></section>
+
+<nav class="lesson-nav" aria-label="ناوبری بین بخش‌ها"><a href="00-فهرست.html">فهرست درس‌ها</a><a href="php-3-oop.html">→ بخش قبل: مبانی PHP ۳: شی‌گرایی (OOP)</a><a href="l0-composer-git.html">بعدی: Composer و Git در عمل ←</a></nav></div><script src="../assets/js/rayvo.js"></script></body></html>
